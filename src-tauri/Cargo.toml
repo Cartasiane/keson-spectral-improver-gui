@@ -1,0 +1,20 @@
+[package]
+name = "keson-spectral-improver-gui"
+version = "0.1.0"
+edition = "2021"
+authors = ["keson"]
+
+[build-dependencies]
+tauri-build = { version = "1.5", features = [] }
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tauri = { version = "1.5", features = ["dialog-all", "fs-all", "path-all", "shell-open"] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+opt-level = 3

@@ -1,0 +1,24 @@
+{
+  "name": "keson-spectral-improver-gui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "tauri": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^1.5.0",
+    "keson-spectral-improver-core": "file:../keson-spectral-improver-core",
+    "system.css": "^0.5.3",
+    "svelte": "^4.2.2"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^2.5.0",
+    "@tauri-apps/cli": "^1.5.7",
+    "vite": "^4.5.0"
+  }
+}

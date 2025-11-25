@@ -1,0 +1,89 @@
+@import "system.css";
+
+:root {
+  --accent: #2e7dd7;
+  --accent-2: #163f7a;
+  --bg: #f6f7fb;
+}
+
+body {
+  background: var(--bg);
+  min-height: 100vh;
+  color: #0f172a;
+}
+
+.app-shell {
+  max-width: 960px;
+  margin: 24px auto;
+  padding: 24px;
+  background: white;
+  border: 1px solid #d5d7de;
+  border-radius: 12px;
+  box-shadow: 0 15px 35px rgba(15, 23, 42, 0.1);
+}
+
+.toolbar {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+input.url-input {
+  flex: 1 1 420px;
+}
+
+.card-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+.badge {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #eaf2ff;
+  color: #123c7a;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.progress-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: #475569;
+}
+
+.button.accent {
+  background: var(--accent);
+  border-color: var(--accent-2);
+  color: #fff;
+}
+
+.button.ghost {
+  background: transparent;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+.list-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.list-card h4 {
+  margin: 0 0 4px;
+}
+
+.small {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.warning {
+  color: #b45309;
+}
