@@ -357,12 +357,12 @@ fn main() {
 }
 
 fn init_rayon_pool() {
-    // Allow override via env; else use 2x logical CPUs
+    // Allow override via env; else use logical CPUs (safer default)
     let threads = std::env::var("RAYON_NUM_THREADS")
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
         .filter(|&n| n > 0)
-        .unwrap_or_else(|| std::cmp::max(1, num_cpus::get().saturating_mul(2)));
+        .unwrap_or_else(|| std::cmp::max(1, num_cpus::get()));
 
     let _ = ThreadPoolBuilder::new()
         .num_threads(threads)
