@@ -11,15 +11,6 @@
     "distDir": "../dist"
   },
   "tauri": {
-    "security": {
-      "assetProtocol": {
-        "scope": [
-          "$APP/**",
-          "$RESOURCE/**",
-          "$TEMP/**"
-        ]
-      }
-    },
     "bundle": {
       "active": true,
       "targets": "all",
@@ -37,7 +28,14 @@
       }
     ],
     "allowlist": {
-      "all": true
+      "all": true,
+      "protocol": {
+        "assetScope": [
+          "$APP/**",
+          "$RESOURCE/**",
+          "$TEMP/**"
+        ]
+      }
     }
   }
 }
