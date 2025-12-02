@@ -65,75 +65,83 @@
   }
 </script>
 
-<div class="desktop">
-  <div class="app-shell window">
-    <header class="title-bar">
-      <div class="title">Keson Spectral Improver</div>
-      <div class="title-buttons">
-        <button aria-label="minimize" class="button">–</button>
-        <button aria-label="close" class="button">×</button>
+<main class="app">
+  <header class="hero">
+    <div>
+      <p class="eyebrow">Keson</p>
+      <h1>Spectral Improver</h1>
+      <p class="sub">Colle un lien, choisis un dossier, on s’occupe du DL.</p>
+    </div>
+    <div class="hero-stats">
+      <div>
+        <span class="stat-label">Actifs</span>
+        <span class="stat-value">{queue.active}</span>
       </div>
-    </header>
-
-    <section class="window-body">
-      <div class="toolbar">
-        <div class="field-row stretch">
-          <label for="url">Lien</label>
-          <input
-            id="url"
-            type="text"
-            placeholder="SoundCloud, Spotify, Apple Music…"
-            bind:value={url}
-            on:keydown={(e) => e.key === 'Enter' && handleDownload()}
-          />
-        </div>
-        <div class="field-row stretch">
-          <label for="output">Dossier</label>
-          <input
-            id="output"
-            type="text"
-            placeholder="~/Music/Keson (optionnel)"
-            bind:value={outputDir}
-          />
-        </div>
-        <div class="toolbar-actions">
-          <button class="button primary" disabled={busy} on:click={handleDownload}>
-            {busy ? '…' : 'Download'}
-          </button>
-        </div>
+      <div>
+        <span class="stat-label">En attente</span>
+        <span class="stat-value">{queue.pending}</span>
       </div>
+    </div>
+  </header>
 
-      <div class="status-bar">
-        <span>Actifs : {queue.active}</span>
-        <span>En attente : {queue.pending}</span>
-        {#if message}<span>{message}</span>{/if}
+  <section class="panel">
+    <div class="fields">
+      <label>
+        <span>Lien</span>
+        <input
+          id="url"
+          type="text"
+          placeholder="SoundCloud, Spotify, Apple Music…"
+          bind:value={url}
+          on:keydown={(e) => e.key === 'Enter' && handleDownload()}
+        />
+      </label>
+      <label>
+        <span>Dossier de sortie (optionnel)</span>
+        <input
+          id="output"
+          type="text"
+          placeholder="~/Music/Keson"
+          bind:value={outputDir}
+        />
+      </label>
+      <div class="actions">
+        <button class="btn primary" disabled={busy} on:click={handleDownload}>
+          {busy ? '…' : 'Download'}
+        </button>
       </div>
+    </div>
+    {#if message}
+      <p class="hint">{message}</p>
+    {/if}
+  </section>
 
-      <section class="group-box">
-        <header>Derniers téléchargements</header>
-        {#if !downloads.length}
-          <p class="muted">Rien encore. Colle un lien pour commencer.</p>
-        {:else}
-          <div class="card-grid">
-            {#each downloads as item, idx}
-              <article class="download-card">
-                <div class="card-head">
-                  <span class="pill">#{downloads.length - idx}</span>
-                  {#if item.quality}<span class="pill ghost">{item.quality}</span>{/if}
-                </div>
-                <h4>{item.title || 'Track'}</h4>
-                <p class="muted">{item.caption}</p>
-                {#if item.warning}
-                  <p class="warning">{item.warning}</p>
-                {/if}
-                {#if item.savedTo}
-                  <p class="muted">Sauvé : {item.savedTo}</p>
-                {/if}
-              </article>
-            {/each}
-          </div>
-        {/if}
-      </section>
-    </section>
-  </div>
-</div>
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Derniers téléchargements</h2>
+      <span class="badge">{downloads.length}</span>
+    </div>
+    {#if !downloads.length}
+      <p class="hint">Rien encore. Colle un lien pour commencer.</p>
+    {:else}
+      <div class="card-grid">
+        {#each downloads as item, idx}
+          <article class="card">
+            <div class="card-top">
+              <span class="pill">#{downloads.length - idx}</span>
+              {#if item.quality}<span class="pill ghost">{item.quality}</span>{/if}
+            </div>
+            <h3>{item.title || 'Track'}</h3>
+            <p class="muted">{item.caption}</p>
+            {#if item.warning}
+              <p class="warn">{item.warning}</p>
+            {/if}
+            {#if item.savedTo}
+              <p class="muted">Sauvé : {item.savedTo}</p>
+            {/if}
+          </article>
+        {/each}
+      </div>
+    {/if}
+  </section>
+</main>
