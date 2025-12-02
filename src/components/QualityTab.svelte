@@ -127,6 +127,7 @@
       <div class="scan-row head">
         <div>Statut</div>
         <div>Bitrate</div>
+        <div>Lossless</div>
         <div>Nom</div>
         <div>Chemin</div>
         <div>Actions</div>
@@ -137,6 +138,7 @@
             {#if item.status === 'bad'}⚠️{:else if item.status === 'ok'}✅{:else}⚙️{/if}
           </div>
           <div class="bitrate">{item.bitrate ? `${item.bitrate} kbps` : 'n/a'}</div>
+          <div class="bitrate">{item.is_lossless === true ? 'Yes' : item.is_lossless === false ? 'No' : 'n/a'}</div>
           <div class="name">{item.name}</div>
           <div class="path" title={item.path}>{item.path}</div>
           <div class="actions actions-inline">

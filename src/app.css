@@ -339,7 +339,7 @@ body {
 
 .scan-row {
   display: grid;
-  grid-template-columns: 70px 90px 220px 1fr 140px;
+  grid-template-columns: 70px 90px 90px 220px 1fr 140px;
   gap: 8px;
   padding: 10px 12px;
   align-items: center;
@@ -386,11 +386,11 @@ body {
 
 @media (max-width: 700px) {
   .scan-row {
-    grid-template-columns: 60px 80px 1fr;
+    grid-template-columns: 60px 80px 80px 1fr;
     grid-template-areas:
-      "status bitrate name"
-      "path path path"
-      "actions actions actions";
+      "status bitrate loss name"
+      "path path path path"
+      "actions actions actions actions";
     row-gap: 4px;
   }
   .scan-row .status-dot {
@@ -398,6 +398,9 @@ body {
   }
   .scan-row .bitrate {
     grid-area: bitrate;
+  }
+  .scan-row .loss {
+    grid-area: loss;
   }
   .scan-row .name {
     grid-area: name;

@@ -27,6 +27,8 @@ struct ScanResult {
     path: String,
     name: String,
     bitrate: Option<u32>,
+    is_lossless: Option<bool>,
+    note: Option<String>,
     status: String, // "ok" | "bad" | "error"
 }
 
@@ -91,18 +93,19 @@ async fn scan_folder(
 
         for (idx, entry) in audio_entries.into_iter().enumerate() {
             let path = entry.path();
-            let bitrate = probe_bitrate(path).ok();
-            let status = match bitrate {
-                Some(b) if b < min => "bad".to_string(),
-                Some(_) => "ok".to_string(),
-                None => "error".to_string(),
+            let analysis = analyze_with_wmb(path, min, &vendor_dir(&handle)?);
+            let (bitrate, is_lossless, note, status) = match analysis {
+                Ok(res) => res,
+                Err(err) => (None, None, Some(err), "error".to_string()),
             };
-            results.push(ScanResult {
-                path: path.display().to_string(),
-                name: entry.file_name().to_string_lossy().into(),
-                bitrate,
-                status,
-            });
+        results.push(ScanResult {
+            path: path.display().to_string(),
+            name: entry.file_name().to_string_lossy().into(),
+            bitrate,
+            is_lossless,
+            note,
+            status,
+        });
 
             let percent = 15.0 + ((idx + 1) as f64 / total as f64) * 85.0;
             let _ = handle.emit_all("scan_progress", percent.round() as u32);
@@ -226,6 +229,22 @@ fn is_audio(path: &Path) -> bool {
     }
 }
 
+fn vendor_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let base = app
+        .path_resolver()
+        .resolve_resource("..")
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let candidates = [
+        base.join("vendor/whatsmybitrate"),
+        base.join("../vendor/whatsmybitrate"),
+        PathBuf::from("vendor/whatsmybitrate"),
+    ];
+    candidates
+        .into_iter()
+        .find(|p| p.exists())
+        .ok_or_else(|| "Vendor whatsmybitrate introuvable".to_string())
+}
+
 fn probe_bitrate(path: &Path) -> Result<u32, String> {
     let output = Command::new("ffprobe")
         .args([
@@ -248,6 +267,57 @@ fn probe_bitrate(path: &Path) -> Result<u32, String> {
     let txt = String::from_utf8_lossy(&output.stdout);
     let val: f64 = txt.trim().parse().map_err(|_| "parse failed".to_string())?;
     Ok((val / 1000.0).round() as u32)
+}
+
+fn analyze_with_wmb(
+    path: &Path,
+    min_kbps: u32,
+    vendor_dir: &Path,
+) -> Result<(Option<u32>, Option<bool>, Option<String>, String), String> {
+    let mut script = String::new();
+    script.push_str("import sys, json\n");
+    script.push_str(&format!(
+        "sys.path.insert(0, r\"{}\")\n",
+        vendor_dir.display()
+    ));
+    script.push_str("from wmb_core import AudioFile\n");
+    script.push_str("af = AudioFile(sys.argv[1])\n");
+    script.push_str("af.analyze(generate_spectrogram_flag=False, assets_dir=None)\n");
+    script.push_str("print(json.dumps(af.to_dict()))\n");
+
+    let output = Command::new("python3")
+        .args(["-c", &script, path.to_str().unwrap_or_default()])
+        .output()
+        .map_err(|e| format!("python3: {e}"))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "whatsmybitrate a échoué: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    let parsed: serde_json::Value =
+        serde_json::from_slice(&output.stdout).map_err(|e| format!("parse json: {e}"))?;
+    let est = parsed
+        .get("estimated_bitrate_numeric")
+        .and_then(|v| v.as_f64())
+        .map(|v| v.round() as u32);
+    let lossless = parsed.get("is_lossless").and_then(|v| v.as_bool());
+    let err = parsed
+        .get("error")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
+    let status = match (err.is_some(), est) {
+        (true, _) => "error".to_string(),
+        (false, Some(b)) if b < min_kbps => "bad".to_string(),
+        (false, Some(_)) => "ok".to_string(),
+        _ => "error".to_string(),
+    };
+
+    Ok((est, lossless, err, status))
 }
 
 fn main() {
