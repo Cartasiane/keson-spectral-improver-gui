@@ -40,7 +40,11 @@
       scanMessage = bad ? `${bad} fichier(s) sous 256 kbps` : 'Tout est au-dessus de 256 kbps'
     } catch (error) {
       console.error(error)
-      scanMessage = error?.message || 'Échec de l’analyse'
+      const msg =
+        (error && (error.message || error.toString?.())) ||
+        (typeof error === 'string' ? error : '') ||
+        ''
+      scanMessage = msg.trim() || 'Échec de l’analyse'
     } finally {
       scanning = false
       stopProgressListener()
