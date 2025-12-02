@@ -5,8 +5,7 @@ use tauri::Manager;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use walkdir::WalkDir;
-use rayon::prelude::*;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::io::{BufRead, BufReader};
 use tauri::async_runtime;
 
 #[derive(Serialize)]
@@ -60,7 +59,7 @@ async fn scan_folder(
 ) -> Result<Vec<ScanResult>, String> {
     let handle = app.clone();
     async_runtime::spawn_blocking(move || {
-        let _min = min_kbps.unwrap_or(256);
+        let min = min_kbps.unwrap_or(256);
         let root = Path::new(&folder);
         if !root.exists() {
             return Err("Dossier introuvable".into());
@@ -91,35 +90,8 @@ async fn scan_folder(
         }
 
         let vendor = vendor_dir(&handle)?;
-        let total = audio_entries.len();
-        let counter = AtomicUsize::new(0);
-
-        let results: Vec<ScanResult> = audio_entries
-            .par_iter()
-            .map(|entry| {
-                let path = entry.path();
-                let analysis = analyze_with_wmb(path, &vendor);
-                let (bitrate, is_lossless, note, status) = match analysis {
-                    Ok(res) => res,
-                    Err(err) => (None, None, Some(err), "error".to_string()),
-                };
-
-                let done = counter.fetch_add(1, Ordering::SeqCst) + 1;
-                let percent = 15.0 + (done as f64 / total as f64) * 85.0;
-                let _ = handle.emit_all("scan_progress", percent.round() as u32);
-
-                ScanResult {
-                    path: path.display().to_string(),
-                    name: entry.file_name().to_string_lossy().into(),
-                    bitrate,
-                    is_lossless,
-                    note,
-                    status,
-                }
-            })
-            .collect();
-
-        Ok(results)
+        let paths: Vec<PathBuf> = audio_entries.into_iter().map(|e| e.path().to_path_buf()).collect();
+        analyze_batch_wmb_stream(&paths, &vendor, min, &handle)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -278,54 +250,135 @@ fn probe_bitrate(path: &Path) -> Result<u32, String> {
     Ok((val / 1000.0).round() as u32)
 }
 
-fn analyze_with_wmb(
-    path: &Path,
+fn analyze_batch_wmb_stream(
+    paths: &[PathBuf],
     vendor_dir: &Path,
-) -> Result<(Option<u32>, Option<bool>, Option<String>, String), String> {
-    let mut script = String::new();
-    script.push_str("import sys, json\n");
-    script.push_str(&format!(
-        "sys.path.insert(0, r\"{}\")\n",
-        vendor_dir.display()
-    ));
-    script.push_str("from wmb_core import AudioFile\n");
-    script.push_str("af = AudioFile(sys.argv[1])\n");
-    script.push_str("af.analyze(generate_spectrogram_flag=False, assets_dir=None)\n");
-    script.push_str("print(json.dumps(af.to_dict()))\n");
-
-    let output = Command::new("python3")
-        .args(["-c", &script, path.to_str().unwrap_or_default()])
-        .output()
-        .map_err(|e| format!("python3: {e}"))?;
-
-    if !output.status.success() {
-        return Err(format!(
-            "whatsmybitrate a échoué: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
+    min: u32,
+    app: &tauri::AppHandle,
+) -> Result<Vec<ScanResult>, String> {
+    if paths.is_empty() {
+        return Ok(Vec::new());
     }
 
-    let parsed: serde_json::Value =
-        serde_json::from_slice(&output.stdout).map_err(|e| format!("parse json: {e}"))?;
-    let est = parsed
-        .get("estimated_bitrate_numeric")
-        .and_then(|v| v.as_f64())
-        .map(|v| v.round() as u32);
-    let lossless = parsed.get("is_lossless").and_then(|v| v.as_bool());
-    let err = parsed
-        .get("error")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string());
+    let python = "python3";
+    let py_check = Command::new(python)
+        .arg("--version")
+        .output()
+        .map_err(|e| format!("python3 introuvable: {e}"))?;
+    if !py_check.status.success() {
+        return Err("python3 introuvable (ajoute-le au PATH)".into());
+    }
 
-    let status = match (err.is_some(), est) {
-        (true, _) => "error".to_string(),
-        (false, Some(b)) if b < 256 => "bad".to_string(),
-        (false, Some(_)) => "ok".to_string(),
-        _ => "error".to_string(),
-    };
+    let list_json = serde_json::to_string(
+        &paths
+            .iter()
+            .map(|p| p.to_str().unwrap_or_default())
+            .collect::<Vec<_>>(),
+    )
+    .unwrap_or_else(|_| "[]".into());
 
-    Ok((est, lossless, err, status))
+    let script = format!(
+        r#"
+import sys, json, concurrent.futures
+sys.path.insert(0, r\"{vendor}\")
+from wmb_core import AudioFile
+
+paths = json.loads(sys.argv[1])
+
+def run(path):
+    try:
+        af = AudioFile(path)
+        af.analyze(generate_spectrogram_flag=False, assets_dir=None)
+        return {{\"ok\": True, \"data\": af.to_dict()}}
+    except Exception as e:
+        return {{\"ok\": False, \"data\": {{\"file\": path, \"error\": str(e)}}}}
+
+with concurrent.futures.ProcessPoolExecutor() as ex:
+    for res in ex.map(run, paths):
+        print(json.dumps(res), flush=True)
+"#,
+        vendor = vendor_dir.display()
+    );
+
+    let mut child = Command::new(python)
+        .args(["-u", "-c", &script, &list_json])
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("python3 spawn: {e}"))?;
+
+    let total = paths.len();
+    let mut results = Vec::with_capacity(total);
+    let mut seen = 0usize;
+
+    if let Some(stdout) = child.stdout.take() {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines() {
+            let line = line.unwrap_or_default();
+            if line.trim().is_empty() {
+                continue;
+            }
+            let parsed: serde_json::Value =
+                serde_json::from_str(&line).unwrap_or_else(|_| serde_json::json!({}));
+            let ok = parsed.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+            let data = parsed.get("data").cloned().unwrap_or_default();
+
+            let (path_str, bitrate, is_lossless, note, status) = if ok {
+                let est = data
+                    .get("estimated_bitrate_numeric")
+                    .and_then(|v| v.as_f64())
+                    .map(|v| v.round() as u32);
+                let lossless = data.get("is_lossless").and_then(|v| v.as_bool());
+                let path_str = data
+                    .get("file")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                let status = match est {
+                    Some(b) if b < min => "bad".to_string(),
+                    Some(_) => "ok".to_string(),
+                    None => "error".to_string(),
+                };
+                (path_str, est, lossless, None, status)
+            } else {
+                let path_str = data
+                    .get("file")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                let err = data
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                (path_str, None, None, Some(err), "error".to_string())
+            };
+
+            let name = Path::new(&path_str)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            results.push(ScanResult {
+                path: path_str,
+                name,
+                bitrate,
+                is_lossless,
+                note,
+                status,
+            });
+
+            seen += 1;
+            let percent = 15.0 + (seen as f64 / total as f64) * 85.0;
+            let _ = app.emit_all("scan_progress", percent.round() as u32);
+        }
+    }
+
+    let status = child.wait().map_err(|e| format!("python3 wait: {e}"))?;
+    if !status.success() {
+        return Err("whatsmybitrate a échoué (processus)".into());
+    }
+
+    Ok(results)
 }
 
 fn main() {
