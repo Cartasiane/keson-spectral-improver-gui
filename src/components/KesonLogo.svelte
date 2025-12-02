@@ -15,29 +15,28 @@
   let colorTimer
 
   onMount(() => {
-    const w = container?.clientWidth || 260
-    const h = container?.clientHeight || 180
+    const w = container?.clientWidth || 240
+    const h = container?.clientHeight || 170
 
     scene = new THREE.Scene()
     scene.background = null
 
     camera = new THREE.PerspectiveCamera(40, w / h, 0.01, 100)
-    camera.position.set(0, 0.45, 2.4)
+    camera.position.set(0, 0.3, 2.3)
 
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
     renderer.setSize(w, h)
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
     renderer.outputColorSpace = THREE.SRGBColorSpace
-    renderer.toneMappingExposure = 1.25
+    renderer.toneMappingExposure = 1.3
     container.appendChild(renderer.domElement)
 
-    const ambient = new THREE.AmbientLight(0xffffff, 1.45)
-    const dir = new THREE.DirectionalLight(0xffffff, 1.25)
-    dir.position.set(2.5, 5, 4)
-    const fill = new THREE.DirectionalLight(0xffffff, 0.85)
-    fill.position.set(-2.5, 1.8, -2.5)
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x0f1220, 0.95)
-    scene.add(ambient, dir, fill, hemi)
+    const ambient = new THREE.AmbientLight(0xffffff, 1.5)
+    const key = new THREE.DirectionalLight(0xffffff, 1.1)
+    key.position.set(2, 3, 3)
+    const fill = new THREE.DirectionalLight(0xffffff, 0.8)
+    fill.position.set(-2, 1, -2.5)
+    scene.add(ambient, key, fill)
 
     const loader = new GLTFLoader()
     loader.setMeshoptDecoder(MeshoptDecoder)
@@ -55,9 +54,7 @@
       const box = new THREE.Box3().setFromObject(model)
       const center = box.getCenter(new THREE.Vector3())
       model.position.sub(center)
-      model.position.y += 0.05
-      model.scale.setScalar(0.7)
-      fitCameraToSphere(camera, box.getBoundingSphere(new THREE.Sphere()))
+      model.scale.setScalar(1.0)
       scene.add(model)
     })
 
@@ -100,20 +97,9 @@
     frame = requestAnimationFrame(animate)
     if (model) {
       model.rotation.y += 0.01
-      model.rotation.x = 0.2
+      model.rotation.x = 0.18
     }
     renderer.render(scene, camera)
-  }
-
-  function fitCameraToSphere(cam, sphere) {
-    const radius = Math.max(1e-4, sphere.radius)
-    const dist = radius / Math.sin((cam.fov * Math.PI) / 360)
-    const margin = 2.0
-    cam.position.set(0, radius * 0.6, dist * margin)
-    cam.near = Math.max(0.01, radius * 0.02)
-    cam.far = Math.max(cam.near * 50, dist * 4)
-    cam.lookAt(0, 0, 0)
-    cam.updateProjectionMatrix()
   }
 </script>
 
