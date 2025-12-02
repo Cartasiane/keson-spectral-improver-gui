@@ -15,8 +15,8 @@
   let colorTimer
 
   onMount(() => {
-    const w = container?.clientWidth || 200
-    const h = container?.clientHeight || 140
+    const w = container?.clientWidth || 220
+    const h = container?.clientHeight || 150
 
     scene = new THREE.Scene()
     scene.background = null
@@ -28,12 +28,16 @@
     renderer.setSize(w, h)
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
     renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.toneMappingExposure = 1.25
     container.appendChild(renderer.domElement)
 
-    const ambient = new THREE.AmbientLight(0xffffff, 0.9)
-    const dir = new THREE.DirectionalLight(0xffffff, 1.0)
-    dir.position.set(3, 4, 9)
-    scene.add(ambient, dir)
+    const ambient = new THREE.AmbientLight(0xffffff, 1.25)
+    const dir = new THREE.DirectionalLight(0xffffff, 1.1)
+    dir.position.set(3, 4, 6)
+    const fill = new THREE.DirectionalLight(0xffffff, 0.8)
+    fill.position.set(-3, 2, -3)
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x1a1a1a, 0.9)
+    scene.add(ambient, dir, fill, hemi)
 
     const loader = new GLTFLoader()
     loader.setMeshoptDecoder(MeshoptDecoder)
