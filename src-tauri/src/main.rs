@@ -283,9 +283,7 @@ import sys, json, concurrent.futures
 sys.path.insert(0, r"{vendor}")
 from wmb_core import AudioFile
 
-paths = json.loads(sys.argv[1])
-
-def run(path):
+def worker(path):
     try:
         af = AudioFile(path)
         af.analyze(generate_spectrogram_flag=False, assets_dir=None)
@@ -293,9 +291,14 @@ def run(path):
     except Exception as e:
         return {{"ok": False, "data": {{"file": path, "error": str(e)}}}}
 
-with concurrent.futures.ProcessPoolExecutor() as ex:
-    for res in ex.map(run, paths):
-        print(json.dumps(res), flush=True)
+def main():
+    paths = json.loads(sys.argv[1])
+    with concurrent.futures.ProcessPoolExecutor() as ex:
+        for res in ex.map(worker, paths):
+            print(json.dumps(res), flush=True)
+
+if __name__ == "__main__":
+    main()
 "#,
         vendor = vendor_dir.display()
     );
