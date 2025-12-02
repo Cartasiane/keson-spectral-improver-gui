@@ -65,66 +65,75 @@
   }
 </script>
 
-<div class="app-shell window">
-  <header class="title-bar">
-    <div class="title">Keson Spectral Improver</div>
-    <div class="controls">
-      <button aria-label="minimize" class="button">–</button>
-      <button aria-label="close" class="button">×</button>
-    </div>
-  </header>
-
-  <section class="window-body">
-    <div class="toolbar">
-      <input
-        class="url-input"
-        type="text"
-        placeholder="Colle un lien SoundCloud, Spotify, Apple Music…"
-        bind:value={url}
-        on:keydown={(e) => e.key === 'Enter' && handleDownload()}
-      />
-      <input
-        class="url-input"
-        type="text"
-        placeholder="Dossier de sortie (optionnel)"
-        bind:value={outputDir}
-      />
-      <button class="button accent" disabled={busy} on:click={handleDownload}>
-        {busy ? '…' : 'Download'}
-      </button>
-    </div>
-
-    {#if message}
-      <p class="small">{message}</p>
-    {/if}
-
-    <div class="progress-row">
-      <div>Actifs: {queue.active}</div>
-      <div>En attente: {queue.pending}</div>
-    </div>
-
-    <h3>Derniers téléchargements</h3>
-    {#if !downloads.length}
-      <p class="small">Rien encore. Colle un lien pour commencer.</p>
-    {:else}
-      <div class="card-grid">
-        {#each downloads as item, idx}
-          <div class="list-card">
-            <div class="badge">#{downloads.length - idx}</div>
-            <h4>{item.title || 'Track'}</h4>
-            <p class="small">{item.caption}</p>
-            {#if item.quality}
-              <p class="small">Qualité: {item.quality}</p>
-            {/if}
-            {#if item.warning}
-              <p class="small warning">{item.warning}</p>
-            {/if}
-            {#if item.savedTo}
-              <p class="small">Sauvé: {item.savedTo}</p>
-            {/if}
-          </div>
-        {/each}
+<div class="desktop">
+  <div class="app-shell window">
+    <header class="title-bar">
+      <div class="title">Keson Spectral Improver</div>
+      <div class="title-buttons">
+        <button aria-label="minimize" class="button">–</button>
+        <button aria-label="close" class="button">×</button>
       </div>
-    {/if}
-  </section>
+    </header>
+
+    <section class="window-body">
+      <div class="toolbar">
+        <div class="field-row stretch">
+          <label for="url">Lien</label>
+          <input
+            id="url"
+            type="text"
+            placeholder="SoundCloud, Spotify, Apple Music…"
+            bind:value={url}
+            on:keydown={(e) => e.key === 'Enter' && handleDownload()}
+          />
+        </div>
+        <div class="field-row stretch">
+          <label for="output">Dossier</label>
+          <input
+            id="output"
+            type="text"
+            placeholder="~/Music/Keson (optionnel)"
+            bind:value={outputDir}
+          />
+        </div>
+        <div class="toolbar-actions">
+          <button class="button primary" disabled={busy} on:click={handleDownload}>
+            {busy ? '…' : 'Download'}
+          </button>
+        </div>
+      </div>
+
+      <div class="status-bar">
+        <span>Actifs : {queue.active}</span>
+        <span>En attente : {queue.pending}</span>
+        {#if message}<span>{message}</span>{/if}
+      </div>
+
+      <section class="group-box">
+        <header>Derniers téléchargements</header>
+        {#if !downloads.length}
+          <p class="muted">Rien encore. Colle un lien pour commencer.</p>
+        {:else}
+          <div class="card-grid">
+            {#each downloads as item, idx}
+              <article class="download-card">
+                <div class="card-head">
+                  <span class="pill">#{downloads.length - idx}</span>
+                  {#if item.quality}<span class="pill ghost">{item.quality}</span>{/if}
+                </div>
+                <h4>{item.title || 'Track'}</h4>
+                <p class="muted">{item.caption}</p>
+                {#if item.warning}
+                  <p class="warning">{item.warning}</p>
+                {/if}
+                {#if item.savedTo}
+                  <p class="muted">Sauvé : {item.savedTo}</p>
+                {/if}
+              </article>
+            {/each}
+          </div>
+        {/if}
+      </section>
+    </section>
+  </div>
 </div>
