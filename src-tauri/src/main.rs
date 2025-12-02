@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use serde::Serialize;
+use tauri::Manager;
 use std::path::Path;
 use std::process::Command;
 use walkdir::WalkDir;
@@ -47,19 +48,26 @@ fn download_link(url: String, output_dir: Option<String>) -> Result<DownloadResu
 }
 
 #[tauri::command]
-fn scan_folder(folder: String, min_kbps: Option<u32>) -> Result<Vec<ScanResult>, String> {
+fn scan_folder(
+    folder: String,
+    min_kbps: Option<u32>,
+    app: tauri::AppHandle,
+) -> Result<Vec<ScanResult>, String> {
     let min = min_kbps.unwrap_or(256);
-    let mut results = Vec::new();
     let root = Path::new(&folder);
     if !root.exists() {
         return Err("Dossier introuvable".into());
     }
 
-    for entry in WalkDir::new(root)
+    let entries: Vec<_> = WalkDir::new(root)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file())
-    {
+        .collect();
+    let total = entries.len().max(1);
+
+    let mut results = Vec::with_capacity(entries.len());
+    for (idx, entry) in entries.into_iter().enumerate() {
         let path = entry.path();
         if !is_audio(path) {
             continue;
@@ -76,6 +84,10 @@ fn scan_folder(folder: String, min_kbps: Option<u32>) -> Result<Vec<ScanResult>,
             bitrate,
             status,
         });
+
+        // emit progress (%)
+        let percent = ((idx + 1) as f64 / total as f64 * 100.0).round() as u32;
+        let _ = app.emit_all("scan_progress", percent);
     }
     Ok(results)
 }

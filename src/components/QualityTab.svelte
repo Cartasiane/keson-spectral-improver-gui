@@ -1,5 +1,6 @@
 <script>
   import { invoke } from '@tauri-apps/api/tauri'
+  import { listen } from '@tauri-apps/api/event'
 
   let scanFolder = ''
   let scanning = false
@@ -7,7 +8,7 @@
   let scanMessage = ''
   let isMock = typeof window !== 'undefined' && !window.__TAURI__
   let progress = 0
-  let progressTimer
+  let unlistenProgress
 
   async function pickFolder() {
     if (!window.__TAURI__) return
@@ -29,8 +30,8 @@
     }
     scanning = true
     scanMessage = 'Analyse en cours...'
-    progress = 5
-    startFakeProgress()
+    progress = 0
+    startProgressListener()
     try {
       const results = await invoke('scan_folder', { folder: scanFolder, minKbps: 256 })
       scanResults = results
@@ -41,25 +42,26 @@
       scanMessage = error?.message || 'Échec de l’analyse'
     } finally {
       scanning = false
-      stopFakeProgress()
+      stopProgressListener()
       progress = 100
     }
   }
 
-  function startFakeProgress() {
-    stopFakeProgress()
-    progressTimer = setInterval(() => {
-      // ease toward 90% while running; final 100% set on finish
-      if (progress < 90) {
-        progress += Math.max(1, (90 - progress) * 0.08)
+  async function startProgressListener() {
+    stopProgressListener()
+    if (!window.__TAURI__) return
+    unlistenProgress = await listen('scan_progress', event => {
+      const val = Number(event.payload)
+      if (Number.isFinite(val)) {
+        progress = Math.max(0, Math.min(100, val))
       }
-    }, 200)
+    })
   }
 
-  function stopFakeProgress() {
-    if (progressTimer) {
-      clearInterval(progressTimer)
-      progressTimer = null
+  function stopProgressListener() {
+    if (unlistenProgress) {
+      unlistenProgress()
+      unlistenProgress = null
     }
   }
 </script>
