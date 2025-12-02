@@ -5,6 +5,7 @@ use tauri::Manager;
 use std::path::Path;
 use std::process::Command;
 use walkdir::WalkDir;
+use tauri::async_runtime;
 
 #[derive(Serialize)]
 struct QueueStats {
@@ -48,66 +49,68 @@ fn download_link(url: String, output_dir: Option<String>) -> Result<DownloadResu
 }
 
 #[tauri::command]
-fn scan_folder(
+async fn scan_folder(
     folder: String,
     min_kbps: Option<u32>,
     app: tauri::AppHandle,
 ) -> Result<Vec<ScanResult>, String> {
-    let min = min_kbps.unwrap_or(256);
-    let root = Path::new(&folder);
-    if !root.exists() {
-        return Err("Dossier introuvable".into());
-    }
+    let handle = app.clone();
+    async_runtime::spawn_blocking(move || {
+        let min = min_kbps.unwrap_or(256);
+        let root = Path::new(&folder);
+        if !root.exists() {
+            return Err("Dossier introuvable".into());
+        }
 
-    // Phase 1: discovery with lightweight progress tick
-    let mut audio_entries = Vec::new();
-    let mut discovered = 0usize;
-    let mut tick = 0u32;
-    let _ = app.emit_all("scan_progress", 1u32); // start
+        let mut audio_entries = Vec::new();
+        let mut discovered = 0usize;
+        let mut tick = 0u32;
+        let _ = handle.emit_all("scan_progress", 1u32); // start
 
-    for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
-        if entry.file_type().is_file() {
-            discovered += 1;
-            if is_audio(entry.path()) {
-                audio_entries.push(entry);
-            }
-            // emit small progress ticks during discovery
-            let pct = 1 + ((discovered as f64).sqrt() as u32 % 12); // gentle movement up to ~13%
-            if pct != tick {
-                tick = pct;
-                let _ = app.emit_all("scan_progress", pct.min(15));
+        for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
+            if entry.file_type().is_file() {
+                discovered += 1;
+                if is_audio(entry.path()) {
+                    audio_entries.push(entry);
+                }
+                let pct = 1 + ((discovered as f64).sqrt() as u32 % 12); // gentle movement up to ~13%
+                if pct != tick {
+                    tick = pct;
+                    let _ = handle.emit_all("scan_progress", pct.min(15));
+                }
             }
         }
-    }
 
-    if audio_entries.is_empty() {
-        let _ = app.emit_all("scan_progress", 100u32);
-        return Ok(Vec::new());
-    }
+        if audio_entries.is_empty() {
+            let _ = handle.emit_all("scan_progress", 100u32);
+            return Ok(Vec::new());
+        }
 
-    let total = audio_entries.len();
-    let mut results = Vec::with_capacity(total);
+        let total = audio_entries.len();
+        let mut results = Vec::with_capacity(total);
 
-    for (idx, entry) in audio_entries.into_iter().enumerate() {
-        let path = entry.path();
-        let bitrate = probe_bitrate(path).ok();
-        let status = match bitrate {
-            Some(b) if b < min => "bad".to_string(),
-            Some(_) => "ok".to_string(),
-            None => "error".to_string(),
-        };
-        results.push(ScanResult {
-            path: path.display().to_string(),
-            name: entry.file_name().to_string_lossy().into(),
-            bitrate,
-            status,
-        });
+        for (idx, entry) in audio_entries.into_iter().enumerate() {
+            let path = entry.path();
+            let bitrate = probe_bitrate(path).ok();
+            let status = match bitrate {
+                Some(b) if b < min => "bad".to_string(),
+                Some(_) => "ok".to_string(),
+                None => "error".to_string(),
+            };
+            results.push(ScanResult {
+                path: path.display().to_string(),
+                name: entry.file_name().to_string_lossy().into(),
+                bitrate,
+                status,
+            });
 
-        // emit progress: map processing into 15-100 range
-        let percent = 15.0 + ((idx + 1) as f64 / total as f64) * 85.0;
-        let _ = app.emit_all("scan_progress", percent.round() as u32);
-    }
-    Ok(results)
+            let percent = 15.0 + ((idx + 1) as f64 / total as f64) * 85.0;
+            let _ = handle.emit_all("scan_progress", percent.round() as u32);
+        }
+        Ok(results)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 fn is_audio(path: &Path) -> bool {
