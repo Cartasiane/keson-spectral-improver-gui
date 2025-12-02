@@ -2,7 +2,7 @@
 
 use serde::Serialize;
 use tauri::Manager;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use walkdir::WalkDir;
 use tauri::async_runtime;
@@ -152,29 +152,50 @@ async fn open_spectrum(path: String) -> Result<String, String> {
     if !src.exists() {
         return Err("Fichier introuvable".into());
     }
-    let mut target = std::env::temp_dir();
-    target.push("keson-spectrum.png");
 
-    let status = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-i",
-            src.to_str().unwrap_or_default(),
-            "-lavfi",
-            "showspectrumpic=s=1200x600:legend=disabled",
-            target.to_str().unwrap_or_default(),
-        ])
-        .status()
-        .map_err(|e| format!("ffmpeg: {e}"))?;
+    // Locate vendored whatsmybitrate
+    let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
+    let vendor_candidates = [
+        PathBuf::from("vendor/whatsmybitrate"),
+        cwd.join("vendor/whatsmybitrate"),
+        cwd.join("../vendor/whatsmybitrate"),
+    ];
+    let vendor_dir = vendor_candidates
+        .into_iter()
+        .find(|p| p.exists())
+        .ok_or_else(|| "Vendor whatsmybitrate introuvable".to_string())?;
 
-    if !status.success() {
-        return Err("ffmpeg n'a pas pu générer le spectre".into());
+    let script = format!(
+        r#"
+import sys, tempfile, os
+sys.path.insert(0, r"{vendor}")
+from wmb_core import AudioFile
+path = sys.argv[1]
+tmp = tempfile.mkdtemp(prefix="wmb-")
+af = AudioFile(path)
+af.analyze(generate_spectrogram_flag=True, assets_dir=tmp)
+print(af.spectrogram_path or "")
+"#,
+        vendor = vendor_dir.display()
+    );
+
+    let output = Command::new("python3")
+        .args(["-c", &script, src.to_str().unwrap_or_default()])
+        .output()
+        .map_err(|e| format!("python3: {e}"))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "whatsmybitrate a échoué: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
     }
 
-    Ok(target
-        .to_str()
-        .map(|s| s.to_string())
-        .ok_or_else(|| "Chemin spectre invalide".to_string())?)
+    let spectro = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if spectro.is_empty() {
+        return Err("whatsmybitrate n'a pas produit de spectrogramme (dépendances manquantes ? matplotlib/librosa)".into());
+    }
+    Ok(spectro)
 }
 
 fn is_audio(path: &Path) -> bool {

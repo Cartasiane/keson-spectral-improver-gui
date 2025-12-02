@@ -15,7 +15,10 @@
       "active": true,
       "targets": "all",
       "identifier": "com.keson.spectralimprover",
-      "icon": []
+      "icon": [],
+      "resources": [
+        "../vendor/whatsmybitrate"
+      ]
     },
     "windows": [
       {
