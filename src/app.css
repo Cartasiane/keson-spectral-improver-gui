@@ -145,6 +145,11 @@ body {
   color: #05101a;
   box-shadow: 0 8px 18px rgba(76, 196, 255, 0.35);
 }
+.btn.ghost {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--border);
+}
 
 .btn:disabled {
   opacity: 0.6;
@@ -197,6 +202,13 @@ body {
   display: grid;
   gap: 6px;
 }
+.card.bad {
+  border-color: rgba(255, 99, 71, 0.6);
+  box-shadow: 0 0 0 2px rgba(255, 99, 71, 0.2);
+}
+.card.ok {
+  border-color: rgba(76, 196, 255, 0.35);
+}
 
 .card-top {
   display: flex;
@@ -234,4 +246,30 @@ body {
   color: var(--warn);
   margin: 0;
   font-weight: 600;
+}
+
+.tabs {
+  display: inline-flex;
+  gap: 6px;
+  margin: 14px 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  padding: 4px;
+}
+
+.tabs button {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  padding: 8px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.tabs button.active {
+  background: rgba(76, 196, 255, 0.1);
+  color: var(--text);
+  border: 1px solid rgba(76, 196, 255, 0.4);
 }

@@ -9,6 +9,13 @@
   let message = ''
   let busy = false
   let isMock = true
+  let activeTab = 'download'
+
+  // quality scan state
+  let scanFolder = ''
+  let scanning = false
+  let scanResults = []
+  let scanMessage = ''
 
   onMount(() => {
     isMock = typeof window !== 'undefined' && !window.__TAURI__
@@ -63,6 +70,41 @@
       savedTo: outputDir || '~/Music/Keson'
     }
   }
+
+  async function pickFolder() {
+    if (!window.__TAURI__) return
+    const { open } = await import('@tauri-apps/api/dialog')
+    const choice = await open({ directory: true })
+    if (choice && typeof choice === 'string') {
+      scanFolder = choice
+    }
+  }
+
+  async function runScan() {
+    if (!scanFolder) {
+      scanMessage = 'Choisis un dossier à analyser.'
+      return
+    }
+    if (!window.__TAURI__) {
+      scanMessage = 'Scan dispo seulement en mode desktop.'
+      return
+    }
+    scanning = true
+    scanMessage = 'Analyse en cours...'
+    try {
+      const results = await invoke('scan_folder', { folder: scanFolder, minKbps: 256 })
+      scanResults = results
+      const bad = results.filter(r => r.status === 'bad').length
+      scanMessage = bad
+        ? `${bad} fichier(s) sous 256 kbps`
+        : 'Tout est au-dessus de 256 kbps'
+    } catch (error) {
+      console.error(error)
+      scanMessage = error?.message || 'Échec de l’analyse'
+    } finally {
+      scanning = false
+    }
+  }
 </script>
 
 <main class="app">
@@ -84,7 +126,17 @@
     </div>
   </header>
 
-  <section class="panel">
+  <div class="tabs">
+    <button class:active={activeTab === 'download'} on:click={() => (activeTab = 'download')}>
+      Download
+    </button>
+    <button class:active={activeTab === 'quality'} on:click={() => (activeTab = 'quality')}>
+      Scan qualité
+    </button>
+  </div>
+
+  {#if activeTab === 'download'}
+    <section class="panel">
     <div class="fields">
       <label>
         <span>Lien</span>
@@ -114,9 +166,9 @@
     {#if message}
       <p class="hint">{message}</p>
     {/if}
-  </section>
+    </section>
 
-  <section class="panel">
+    <section class="panel">
     <div class="panel-head">
       <h2>Derniers téléchargements</h2>
       <span class="badge">{downloads.length}</span>
@@ -143,5 +195,42 @@
         {/each}
       </div>
     {/if}
-  </section>
+    </section>
+  {:else}
+    <section class="panel">
+      <div class="fields">
+        <label>
+          <span>Dossier à analyser</span>
+          <input
+            type="text"
+            placeholder="/chemin/vers/ta/musique"
+            bind:value={scanFolder}
+          />
+        </label>
+        <div class="actions">
+          <button class="btn ghost" on:click={pickFolder}>Parcourir</button>
+          <button class="btn primary" disabled={scanning} on:click={runScan}>
+            {scanning ? 'Scan…' : 'Lancer le scan'}
+          </button>
+        </div>
+      </div>
+      {#if scanMessage}
+        <p class="hint">{scanMessage}</p>
+      {/if}
+      {#if scanResults.length}
+        <div class="card-grid">
+          {#each scanResults as item}
+            <article class="card {item.status}">
+              <div class="card-top">
+                <span class="pill">{item.bitrate ? `${item.bitrate} kbps` : 'n/a'}</span>
+                <span class="pill ghost">{item.status === 'bad' ? 'Low' : 'OK'}</span>
+              </div>
+              <h3>{item.name}</h3>
+              <p class="muted">{item.path}</p>
+            </article>
+          {/each}
+        </div>
+      {/if}
+    </section>
+  {/if}
 </main>
