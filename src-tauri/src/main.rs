@@ -59,19 +59,37 @@ fn scan_folder(
         return Err("Dossier introuvable".into());
     }
 
-    let entries: Vec<_> = WalkDir::new(root)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
-        .collect();
-    let total = entries.len().max(1);
+    // Phase 1: discovery with lightweight progress tick
+    let mut audio_entries = Vec::new();
+    let mut discovered = 0usize;
+    let mut tick = 0u32;
+    let _ = app.emit_all("scan_progress", 5u32); // start
 
-    let mut results = Vec::with_capacity(entries.len());
-    for (idx, entry) in entries.into_iter().enumerate() {
-        let path = entry.path();
-        if !is_audio(path) {
-            continue;
+    for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
+        if entry.file_type().is_file() {
+            discovered += 1;
+            if is_audio(entry.path()) {
+                audio_entries.push(entry);
+            }
+            // emit small progress ticks during discovery
+            let pct = 5 + ((discovered as f64).sqrt() as u32 % 10); // gentle movement up to ~15%
+            if pct != tick {
+                tick = pct;
+                let _ = app.emit_all("scan_progress", pct.min(15));
+            }
         }
+    }
+
+    if audio_entries.is_empty() {
+        let _ = app.emit_all("scan_progress", 100u32);
+        return Ok(Vec::new());
+    }
+
+    let total = audio_entries.len();
+    let mut results = Vec::with_capacity(total);
+
+    for (idx, entry) in audio_entries.into_iter().enumerate() {
+        let path = entry.path();
         let bitrate = probe_bitrate(path).ok();
         let status = match bitrate {
             Some(b) if b < min => "bad".to_string(),
@@ -85,9 +103,9 @@ fn scan_folder(
             status,
         });
 
-        // emit progress (%)
-        let percent = ((idx + 1) as f64 / total as f64 * 100.0).round() as u32;
-        let _ = app.emit_all("scan_progress", percent);
+        // emit progress: map processing into 15-100 range
+        let percent = 15.0 + ((idx + 1) as f64 / total as f64) * 85.0;
+        let _ = app.emit_all("scan_progress", percent.round() as u32);
     }
     Ok(results)
 }
