@@ -1,7 +1,6 @@
 <script>
-  import { invoke } from '@tauri-apps/api/tauri'
+  import { invoke, convertFileSrc } from '@tauri-apps/api/tauri'
   import { listen } from '@tauri-apps/api/event'
-  import { open as shellOpen } from '@tauri-apps/api/shell'
 
   let scanFolder = ''
   let scanning = false
@@ -10,6 +9,7 @@
   let isMock = typeof window !== 'undefined' && !window.__TAURI__
   let progress = 0
   let unlistenProgress
+  let spectra = {}
 
   async function pickFolder() {
     if (!window.__TAURI__) return
@@ -81,7 +81,9 @@
     if (!window.__TAURI__) return
     try {
       const imgPath = await invoke('open_spectrum', { path })
-      await shellOpen(imgPath)
+      const url = convertFileSrc(imgPath)
+      spectra = { ...spectra, [path]: url }
+      scanMessage = 'Spectre généré'
     } catch (err) {
       console.error(err)
       scanMessage = err?.message || 'Échec génération spectre.'
@@ -141,6 +143,11 @@
             <button class="btn mini ghost" on:click={() => reveal(item.path)}>Voir</button>
             <button class="btn mini" on:click={() => spectrum(item.path)}>Spectre</button>
           </div>
+          {#if spectra[item.path]}
+            <div class="spectrum" style="grid-column: 1 / -1;">
+              <img src={spectra[item.path]} alt={`Spectrogramme ${item.name}`} loading="lazy" />
+            </div>
+          {/if}
         </div>
       {/each}
     </div>

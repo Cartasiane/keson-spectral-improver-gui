@@ -244,6 +244,20 @@ body {
   border-color: rgba(86, 156, 214, 0.6);
 }
 
+.spectrum {
+  margin-top: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #1a1a1a;
+  padding: 6px;
+}
+
+.spectrum img {
+  width: 100%;
+  border-radius: 8px;
+  display: block;
+}
+
 .card h3 {
   margin: 0;
   font-size: 16px;
