@@ -218,16 +218,32 @@
         <p class="hint">{scanMessage}</p>
       {/if}
       {#if scanResults.length}
-        <div class="card-grid">
+        <div class="scan-summary">
+          <span class="pill ghost">Total {scanResults.length}</span>
+          <span class="pill warn">
+            Low {
+              scanResults.filter(r => r.status === 'bad').length
+            }
+          </span>
+          <span class="pill">OK {scanResults.filter(r => r.status === 'ok').length}</span>
+          <span class="pill">Err {scanResults.filter(r => r.status === 'error').length}</span>
+        </div>
+        <div class="scan-table">
+          <div class="scan-row head">
+            <div>Statut</div>
+            <div>Bitrate</div>
+            <div>Nom</div>
+            <div>Chemin</div>
+          </div>
           {#each scanResults as item}
-            <article class="card {item.status}">
-              <div class="card-top">
-                <span class="pill">{item.bitrate ? `${item.bitrate} kbps` : 'n/a'}</span>
-                <span class="pill ghost">{item.status === 'bad' ? 'Low' : 'OK'}</span>
+            <div class="scan-row {item.status}">
+              <div class="status-dot">
+                {#if item.status === 'bad'}⚠️{:else if item.status === 'ok'}✅{:else}⚙️{/if}
               </div>
-              <h3>{item.name}</h3>
-              <p class="muted">{item.path}</p>
-            </article>
+              <div class="bitrate">{item.bitrate ? `${item.bitrate} kbps` : 'n/a'}</div>
+              <div class="name">{item.name}</div>
+              <div class="path" title={item.path}>{item.path}</div>
+            </div>
           {/each}
         </div>
       {/if}
