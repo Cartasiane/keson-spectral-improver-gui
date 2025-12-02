@@ -132,6 +132,11 @@ body {
   justify-content: flex-end;
 }
 
+.actions-inline {
+  display: flex;
+  justify-content: flex-start;
+}
+
 .btn {
   padding: 12px 18px;
   border-radius: 10px;
@@ -139,6 +144,12 @@ body {
   font-weight: 700;
   cursor: pointer;
   transition: transform 0.1s ease, box-shadow 0.2s ease, background 0.15s ease;
+}
+
+.btn.mini {
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
 }
 
 .btn.primary {

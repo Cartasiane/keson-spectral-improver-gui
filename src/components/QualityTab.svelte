@@ -1,6 +1,7 @@
 <script>
   import { invoke } from '@tauri-apps/api/tauri'
   import { listen } from '@tauri-apps/api/event'
+  import { open as shellOpen } from '@tauri-apps/api/shell'
 
   let scanFolder = ''
   let scanning = false
@@ -56,7 +57,6 @@
         progress = Math.max(0, Math.min(100, val))
       }
     })
-    // tiny nudge to render the bar immediately
     progress = 1
   }
 
@@ -64,6 +64,27 @@
     if (unlistenProgress) {
       unlistenProgress()
       unlistenProgress = null
+    }
+  }
+
+  async function reveal(path) {
+    if (!window.__TAURI__) return
+    try {
+      await invoke('reveal_in_folder', { path })
+    } catch (err) {
+      console.error(err)
+      scanMessage = err?.message || "Impossible d’ouvrir le dossier."
+    }
+  }
+
+  async function spectrum(path) {
+    if (!window.__TAURI__) return
+    try {
+      const imgPath = await invoke('open_spectrum', { path })
+      await shellOpen(imgPath)
+    } catch (err) {
+      console.error(err)
+      scanMessage = err?.message || 'Échec génération spectre.'
     }
   }
 </script>
@@ -106,6 +127,7 @@
         <div>Bitrate</div>
         <div>Nom</div>
         <div>Chemin</div>
+        <div>Actions</div>
       </div>
       {#each scanResults as item}
         <div class={`scan-row ${item.status}`}>
@@ -115,6 +137,10 @@
           <div class="bitrate">{item.bitrate ? `${item.bitrate} kbps` : 'n/a'}</div>
           <div class="name">{item.name}</div>
           <div class="path" title={item.path}>{item.path}</div>
+          <div class="actions actions-inline">
+            <button class="btn mini ghost" on:click={() => reveal(item.path)}>Voir</button>
+            <button class="btn mini" on:click={() => spectrum(item.path)}>Spectre</button>
+          </div>
         </div>
       {/each}
     </div>

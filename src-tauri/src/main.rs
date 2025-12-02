@@ -113,6 +113,70 @@ async fn scan_folder(
     .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+async fn reveal_in_folder(path: String) -> Result<(), String> {
+    if !Path::new(&path).exists() {
+        return Err("Fichier introuvable".into());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg("-R")
+            .arg(&path)
+            .status()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .arg("/select,")
+            .arg(path.replace('/', "\\"))
+            .status()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(dir) = Path::new(&path).parent() {
+            Command::new("xdg-open")
+                .arg(dir)
+                .status()
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn open_spectrum(path: String) -> Result<String, String> {
+    let src = Path::new(&path);
+    if !src.exists() {
+        return Err("Fichier introuvable".into());
+    }
+    let mut target = std::env::temp_dir();
+    target.push("keson-spectrum.png");
+
+    let status = Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-i",
+            src.to_str().unwrap_or_default(),
+            "-lavfi",
+            "showspectrumpic=s=1200x600:legend=disabled",
+            target.to_str().unwrap_or_default(),
+        ])
+        .status()
+        .map_err(|e| format!("ffmpeg: {e}"))?;
+
+    if !status.success() {
+        return Err("ffmpeg n'a pas pu générer le spectre".into());
+    }
+
+    Ok(target
+        .to_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "Chemin spectre invalide".to_string())?)
+}
+
 fn is_audio(path: &Path) -> bool {
     match path.extension().and_then(|e| e.to_str()).map(|s| s.to_lowercase()) {
         Some(ext) => matches!(
@@ -152,7 +216,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             queue_stats,
             download_link,
-            scan_folder
+            scan_folder,
+            reveal_in_folder,
+            open_spectrum
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
