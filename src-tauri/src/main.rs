@@ -280,7 +280,7 @@ fn analyze_batch_wmb_stream(
     let script = format!(
         r#"
 import sys, json, concurrent.futures
-sys.path.insert(0, r\"{vendor}\")
+sys.path.insert(0, r"{vendor}")
 from wmb_core import AudioFile
 
 paths = json.loads(sys.argv[1])
@@ -289,9 +289,9 @@ def run(path):
     try:
         af = AudioFile(path)
         af.analyze(generate_spectrogram_flag=False, assets_dir=None)
-        return {{\"ok\": True, \"data\": af.to_dict()}}
+        return {{"ok": True, "data": af.to_dict()}}
     except Exception as e:
-        return {{\"ok\": False, \"data\": {{\"file\": path, \"error\": str(e)}}}}
+        return {{"ok": False, "data": {{"file": path, "error": str(e)}}}}
 
 with concurrent.futures.ProcessPoolExecutor() as ex:
     for res in ex.map(run, paths):
