@@ -9,6 +9,8 @@ use tauri::async_runtime;
 use rayon::prelude::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use rayon::iter::IntoParallelRefIterator;
+use rayon::ThreadPoolBuilder;
+use num_cpus;
 
 #[derive(Serialize)]
 struct QueueStats {
@@ -341,6 +343,7 @@ print(json.dumps(af.to_dict()))
 }
 
 fn main() {
+    init_rayon_pool();
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             queue_stats,
@@ -351,4 +354,17 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+fn init_rayon_pool() {
+    // Allow override via env; else use 2x logical CPUs
+    let threads = std::env::var("RAYON_NUM_THREADS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or_else(|| std::cmp::max(1, num_cpus::get().saturating_mul(2)));
+
+    let _ = ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .build_global();
 }
