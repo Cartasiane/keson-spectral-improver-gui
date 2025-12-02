@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^1.5.0",
-    "keson-spectral-improver-core": "file:../keson-spectral-improver-core",
+    "keson-spectral-improver-core": "^0.1.0",
     "system.css": "^0.5.3",
     "svelte": "^4.2.2"
   },
