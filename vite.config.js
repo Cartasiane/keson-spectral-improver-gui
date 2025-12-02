@@ -3,6 +3,7 @@ import { svelte } from '@sveltejs/vite-plugin-svelte'
 
 // Vite config tuned for Tauri (file protocol + relative assets)
 export default defineConfig(({ mode }) => ({
+  base: './', // ensure hashed CSS/JS resolve under file:// in Tauri
   plugins: [svelte()],
   clearScreen: false,
   server: {
