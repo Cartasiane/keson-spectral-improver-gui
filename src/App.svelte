@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte'
   import { invoke } from '@tauri-apps/api/tauri'
+  import KesonLogo from './components/KesonLogo.svelte'
 
   let url = ''
   let outputDir = ''
@@ -109,6 +110,9 @@
 
 <main class="app">
   <header class="hero">
+    <div class="logo-block">
+      <KesonLogo />
+    </div>
     <div>
       <p class="eyebrow">Keson</p>
       <h1>Spectral Improver</h1>

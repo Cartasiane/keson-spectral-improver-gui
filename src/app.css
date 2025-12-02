@@ -38,10 +38,15 @@ body {
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 18px 18px;
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 220px 1fr auto;
   align-items: center;
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+}
+
+.logo-block {
+  width: 200px;
+  height: 140px;
 }
 
 .eyebrow {
