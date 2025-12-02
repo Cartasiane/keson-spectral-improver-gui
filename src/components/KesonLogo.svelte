@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte'
   import * as THREE from 'three'
   import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+  import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 
   let container
   let frame
@@ -35,6 +36,7 @@
     scene.add(ambient, dir)
 
     const loader = new GLTFLoader()
+    loader.setMeshoptDecoder(MeshoptDecoder)
     loader.load('/keson-model.glb', (gltf) => {
       model = gltf.scene
       model.traverse((child) => {
