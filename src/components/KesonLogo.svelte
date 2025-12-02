@@ -21,8 +21,8 @@
     scene = new THREE.Scene()
     scene.background = null
 
-    camera = new THREE.PerspectiveCamera(40, w / h, 0.1, 100)
-    camera.position.set(0, 0.6, 2.2)
+    camera = new THREE.PerspectiveCamera(40, w / h, 0.01, 100)
+    camera.position.set(0, 0.4, 3.2)
 
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
     renderer.setSize(w, h)
@@ -32,7 +32,7 @@
 
     const ambient = new THREE.AmbientLight(0xffffff, 0.9)
     const dir = new THREE.DirectionalLight(0xffffff, 1.0)
-    dir.position.set(3, 4, 2)
+    dir.position.set(3, 4, 9)
     scene.add(ambient, dir)
 
     const loader = new GLTFLoader()
@@ -51,7 +51,8 @@
       const box = new THREE.Box3().setFromObject(model)
       const center = box.getCenter(new THREE.Vector3())
       model.position.sub(center)
-      model.scale.setScalar(0.6)
+      model.scale.setScalar(0.35)
+      fitCameraToSphere(camera, box.getBoundingSphere(new THREE.Sphere()))
       scene.add(model)
     })
 
@@ -97,6 +98,17 @@
       model.rotation.x = 0.2
     }
     renderer.render(scene, camera)
+  }
+
+  function fitCameraToSphere(cam, sphere) {
+    const radius = Math.max(1e-4, sphere.radius)
+    const dist = radius / Math.sin((cam.fov * Math.PI) / 360)
+    const margin = 2.0
+    cam.position.set(0, radius * 0.6, dist * margin)
+    cam.near = Math.max(0.01, radius * 0.02)
+    cam.far = Math.max(cam.near * 50, dist * 4)
+    cam.lookAt(0, 0, 0)
+    cam.updateProjectionMatrix()
   }
 </script>
 
