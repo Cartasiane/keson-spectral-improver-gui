@@ -6,6 +6,8 @@
   let scanResults = []
   let scanMessage = ''
   let isMock = typeof window !== 'undefined' && !window.__TAURI__
+  let progress = 0
+  let progressTimer
 
   async function pickFolder() {
     if (!window.__TAURI__) return
@@ -27,6 +29,8 @@
     }
     scanning = true
     scanMessage = 'Analyse en cours...'
+    progress = 5
+    startFakeProgress()
     try {
       const results = await invoke('scan_folder', { folder: scanFolder, minKbps: 256 })
       scanResults = results
@@ -37,6 +41,25 @@
       scanMessage = error?.message || 'Échec de l’analyse'
     } finally {
       scanning = false
+      stopFakeProgress()
+      progress = 100
+    }
+  }
+
+  function startFakeProgress() {
+    stopFakeProgress()
+    progressTimer = setInterval(() => {
+      // ease toward 90% while running; final 100% set on finish
+      if (progress < 90) {
+        progress += Math.max(1, (90 - progress) * 0.08)
+      }
+    }, 200)
+  }
+
+  function stopFakeProgress() {
+    if (progressTimer) {
+      clearInterval(progressTimer)
+      progressTimer = null
     }
   }
 </script>
@@ -60,6 +83,11 @@
   </div>
   {#if scanMessage}
     <p class="hint">{scanMessage}</p>
+  {/if}
+  {#if scanning}
+    <div class="progress-bar">
+      <div class="fill" style={`width:${progress}%`}></div>
+    </div>
   {/if}
   {#if scanResults.length}
     <div class="scan-summary">
