@@ -165,6 +165,16 @@ async fn open_spectrum(path: String) -> Result<String, String> {
         .find(|p| p.exists())
         .ok_or_else(|| "Vendor whatsmybitrate introuvable".to_string())?;
 
+    // Ensure python3 is available
+    let python = "python3";
+    let py_check = Command::new(python)
+        .arg("--version")
+        .output()
+        .map_err(|e| format!("python3 introuvable: {e}"))?;
+    if !py_check.status.success() {
+        return Err("python3 introuvable (ajoute-le au PATH)".into());
+    }
+
     let script = format!(
         r#"
 import sys, tempfile, os
@@ -179,21 +189,29 @@ print(af.spectrogram_path or "")
         vendor = vendor_dir.display()
     );
 
-    let output = Command::new("python3")
+    let output = Command::new(python)
         .args(["-c", &script, src.to_str().unwrap_or_default()])
         .output()
         .map_err(|e| format!("python3: {e}"))?;
 
     if !output.status.success() {
-        return Err(format!(
-            "whatsmybitrate a échoué: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("ModuleNotFoundError") || stderr.contains("No module named") {
+            return Err(
+                "Dépendances Python manquantes (librosa, matplotlib, numpy...). \
+Installe-les : pip install -r vendor/whatsmybitrate/requirements.txt"
+                    .into(),
+            );
+        }
+        return Err(format!("whatsmybitrate a échoué: {}", stderr));
     }
 
     let spectro = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if spectro.is_empty() {
-        return Err("whatsmybitrate n'a pas produit de spectrogramme (dépendances manquantes ? matplotlib/librosa)".into());
+        return Err(
+            "whatsmybitrate n'a pas produit de spectrogramme (vérifie les dépendances Python ou la taille du fichier)"
+                .into(),
+        );
     }
     Ok(spectro)
 }
