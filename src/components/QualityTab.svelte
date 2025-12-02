@@ -31,7 +31,7 @@
     scanning = true
     scanMessage = 'Analyse en cours...'
     progress = 0
-    startProgressListener()
+    await startProgressListener()
     try {
       const results = await invoke('scan_folder', { folder: scanFolder, minKbps: 256 })
       scanResults = results
@@ -56,6 +56,8 @@
         progress = Math.max(0, Math.min(100, val))
       }
     })
+    // tiny nudge to render the bar immediately
+    progress = 1
   }
 
   function stopProgressListener() {

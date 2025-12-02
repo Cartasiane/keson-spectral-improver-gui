@@ -63,7 +63,7 @@ fn scan_folder(
     let mut audio_entries = Vec::new();
     let mut discovered = 0usize;
     let mut tick = 0u32;
-    let _ = app.emit_all("scan_progress", 5u32); // start
+    let _ = app.emit_all("scan_progress", 1u32); // start
 
     for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
         if entry.file_type().is_file() {
@@ -72,7 +72,7 @@ fn scan_folder(
                 audio_entries.push(entry);
             }
             // emit small progress ticks during discovery
-            let pct = 5 + ((discovered as f64).sqrt() as u32 % 10); // gentle movement up to ~15%
+            let pct = 1 + ((discovered as f64).sqrt() as u32 % 12); // gentle movement up to ~13%
             if pct != tick {
                 tick = pct;
                 let _ = app.emit_all("scan_progress", pct.min(15));
