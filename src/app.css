@@ -39,24 +39,10 @@ body {
   border-radius: 16px;
   padding: 18px 18px;
   display: grid;
-  grid-template-columns: minmax(240px, 260px) 1fr auto;
+  grid-template-columns: 1fr auto;
   column-gap: 18px;
   align-items: center;
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
-}
-
-.logo-block {
-  width: 100%;
-  max-width: 260px;
-  height: 180px;
-}
-
-.logo-wrapper {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 .eyebrow {
