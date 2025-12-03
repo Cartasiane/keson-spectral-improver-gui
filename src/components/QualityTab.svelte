@@ -155,15 +155,17 @@
             <button class="btn mini ghost" on:click={() => reveal(item.path)}>Voir</button>
             <button class="btn mini" on:click={() => spectrum(item.path)}>Spectre</button>
           </div>
-          <div class="spectrum" style="grid-column: 1 / -1;">
-            {#if spectroLoading[item.path]}
-              <div class="skeleton"></div>
-            {:else if spectra[item.path] === 'error'}
-              <div class="skeleton error">Spectre indisponible</div>
-            {:else if spectra[item.path]}
-              <img src={spectra[item.path]} alt={`Spectrogramme ${item.name}`} loading="lazy" />
-            {/if}
-          </div>
+          {#if spectroLoading[item.path] || spectra[item.path]}
+            <div class="spectrum" style="grid-column: 1 / -1;">
+              {#if spectroLoading[item.path]}
+                <div class="skeleton"></div>
+              {:else if spectra[item.path] === 'error'}
+                <div class="skeleton error">Spectre indisponible</div>
+              {:else if spectra[item.path]}
+                <img src={spectra[item.path]} alt={`Spectrogramme ${item.name}`} loading="lazy" />
+              {/if}
+            </div>
+          {/if}
         </div>
       {/each}
     </div>
