@@ -17,7 +17,7 @@ warnings.filterwarnings('ignore', category=UserWarning, message='Xing stream siz
 warnings.filterwarnings('ignore', category=UserWarning, message='PySoundFile failed.*')
 warnings.filterwarnings('ignore', category=FutureWarning, message='.*audioread_load.*')
 
-MAX_LOAD_SECONDS = 300.0
+MAX_LOAD_SECONDS = 100.0
 SUPPORTED_FORMATS = {'wav', 'flac', 'mp3', 'aac', 'ogg', 'm4a', 'aiff', 'alac'}
 logger = logging.getLogger("audio_analysis")
 
