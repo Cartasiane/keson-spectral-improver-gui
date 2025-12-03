@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::Manager;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -9,6 +9,12 @@ use tauri::async_runtime;
 use rayon::prelude::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use rayon::iter::IntoParallelRefIterator;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::fs;
+use std::io::{self, Read};
+use sha2::{Sha256, Digest};
+use hex;
 use rayon::ThreadPoolBuilder;
 use num_cpus;
 
@@ -35,6 +41,13 @@ struct ScanResult {
     is_lossless: Option<bool>,
     note: Option<String>,
     status: String, // "ok" | "bad" | "error"
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct CacheEntry {
+    bitrate: Option<u32>,
+    is_lossless: Option<bool>,
+    note: Option<String>,
 }
 
 #[tauri::command]
@@ -94,6 +107,8 @@ async fn scan_folder(
         }
 
         let vendor = vendor_dir(&handle)?;
+        let cache_path = cache_path(&handle)?;
+        let cache = Arc::new(Mutex::new(load_cache(&cache_path)));
         let total = audio_entries.len();
         let counter = AtomicUsize::new(0);
 
@@ -101,7 +116,7 @@ async fn scan_folder(
             .par_iter()
             .map(|entry| {
                 let path = entry.path();
-                let analysis = analyze_with_wmb_single(path, &vendor, min);
+                let analysis = analyze_with_wmb_single(path, &vendor, min, &cache);
                 let (bitrate, is_lossless, note, status) = match analysis {
                     Ok(res) => res,
                     Err(err) => (None, None, Some(err), "error".to_string()),
@@ -121,6 +136,10 @@ async fn scan_folder(
                 }
             })
             .collect();
+
+        if let Ok(cache_guard) = cache.lock() {
+            let _ = save_cache(&cache_path, &*cache_guard);
+        }
 
         Ok(results)
     })
@@ -281,11 +300,76 @@ fn probe_bitrate(path: &Path) -> Result<u32, String> {
     Ok((val / 1000.0).round() as u32)
 }
 
+fn file_hash(path: &Path) -> io::Result<String> {
+    let mut file = fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 8192];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hex::encode(hasher.finalize()))
+}
+
+fn cache_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let base = app
+        .path_resolver()
+        .app_data_dir()
+        .or_else(|| app.path_resolver().app_cache_dir())
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let path = base.join("analysis-cache.json");
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    Ok(path)
+}
+
+fn load_cache(path: &Path) -> HashMap<String, CacheEntry> {
+    if let Ok(text) = fs::read_to_string(path) {
+        serde_json::from_str(&text).unwrap_or_default()
+    } else {
+        HashMap::new()
+    }
+}
+
+fn save_cache(path: &Path, cache: &HashMap<String, CacheEntry>) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let tmp = path.with_extension("tmp");
+    fs::write(&tmp, serde_json::to_string(cache).unwrap_or_default())?;
+    fs::rename(tmp, path)?;
+    Ok(())
+}
+
 fn analyze_with_wmb_single(
     path: &Path,
     vendor_dir: &Path,
     min: u32,
+    cache: &Arc<Mutex<HashMap<String, CacheEntry>>>,
 ) -> Result<(Option<u32>, Option<bool>, Option<String>, String), String> {
+    let hash = file_hash(path).ok();
+    if let Some(h) = &hash {
+        if let Ok(guard) = cache.lock() {
+            if let Some(entry) = guard.get(h) {
+                let status = match entry.bitrate {
+                    Some(b) if b < min => "bad".to_string(),
+                    Some(_) => "ok".to_string(),
+                    None => "error".to_string(),
+                };
+                return Ok((
+                    entry.bitrate,
+                    entry.is_lossless,
+                    entry.note.clone(),
+                    status,
+                ));
+            }
+        }
+    }
+
     let python = "python3";
     let py_check = Command::new(python)
         .arg("--version")
@@ -338,6 +422,19 @@ print(json.dumps(af.to_dict()))
         (false, Some(_)) => "ok".to_string(),
         _ => "error".to_string(),
     };
+
+    if let Some(h) = hash {
+        if let Ok(mut guard) = cache.lock() {
+            guard.insert(
+                h,
+                CacheEntry {
+                    bitrate: est,
+                    is_lossless: lossless,
+                    note: err.clone(),
+                },
+            );
+        }
+    }
 
     Ok((est, lossless, err, status))
 }
