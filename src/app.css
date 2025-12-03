@@ -66,8 +66,9 @@ body {
 
 .hero-stats {
   display: grid;
-  grid-template-columns: repeat(2, minmax(80px, 1fr));
+  grid-template-columns: repeat(2, minmax(80px, 1fr)) auto;
   gap: 10px;
+  align-items: center;
 }
 
 .hero-stats div {
@@ -87,6 +88,50 @@ body {
 .stat-value {
   font-weight: 700;
   font-size: 20px;
+}
+
+.icon-btn {
+  background: #1e1e1e;
+  border: 1px solid #3f3f46;
+  color: var(--text);
+  border-radius: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, border 0.15s ease, transform 0.1s ease;
+}
+.icon-btn:hover {
+  background: #2a2a2a;
+}
+.icon-btn:active {
+  transform: translateY(1px);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 50;
+}
+
+.modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  min-width: 340px;
+  z-index: 51;
+  box-shadow: var(--shadow);
+}
+
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
 }
 
 .panel {

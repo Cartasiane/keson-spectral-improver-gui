@@ -50,6 +50,27 @@ struct CacheEntry {
     note: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+struct Settings {
+    min_bitrate: u32,
+    analysis_window_seconds: u32,
+    rayon_threads: usize, // 0 = default logical cores
+    cache_enabled: bool,
+    cache_max_entries: usize
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            min_bitrate: 256,
+            analysis_window_seconds: 100,
+            rayon_threads: 0,
+            cache_enabled: true,
+            cache_max_entries: 10_000,
+        }
+    }
+}
+
 #[tauri::command]
 fn queue_stats() -> QueueStats {
     QueueStats { active: 0, pending: 0 }
@@ -76,7 +97,9 @@ async fn scan_folder(
 ) -> Result<Vec<ScanResult>, String> {
     let handle = app.clone();
     async_runtime::spawn_blocking(move || {
-        let min = min_kbps.unwrap_or(256);
+        let settings = load_settings_path(&handle);
+        init_rayon_pool_with(settings.rayon_threads);
+        let min = min_kbps.unwrap_or(settings.min_bitrate);
         let root = Path::new(&folder);
         if !root.exists() {
             return Err("Dossier introuvable".into());
@@ -108,7 +131,7 @@ async fn scan_folder(
 
         let vendor = vendor_dir(&handle)?;
         let cache_path = cache_path(&handle)?;
-        let cache = Arc::new(Mutex::new(load_cache(&cache_path)));
+        let cache = Arc::new(Mutex::new(load_cache(&cache_path, settings.cache_max_entries)));
         let total = audio_entries.len();
         let counter = AtomicUsize::new(0);
 
@@ -116,7 +139,14 @@ async fn scan_folder(
             .par_iter()
             .map(|entry| {
                 let path = entry.path();
-                let analysis = analyze_with_wmb_single(path, &vendor, min, &cache);
+                let analysis = analyze_with_wmb_single(
+                    path,
+                    &vendor,
+                    min,
+                    settings.analysis_window_seconds,
+                    settings.cache_enabled,
+                    &cache,
+                );
                 let (bitrate, is_lossless, note, status) = match analysis {
                     Ok(res) => res,
                     Err(err) => (None, None, Some(err), "error".to_string()),
@@ -327,9 +357,12 @@ fn cache_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-fn load_cache(path: &Path) -> HashMap<String, CacheEntry> {
+fn load_cache(path: &Path, limit: usize) -> HashMap<String, CacheEntry> {
     if let Ok(text) = fs::read_to_string(path) {
-        serde_json::from_str(&text).unwrap_or_default()
+        let mut map: HashMap<String, CacheEntry> =
+            serde_json::from_str(&text).unwrap_or_default();
+        enforce_cache_limit(&mut map, limit);
+        map
     } else {
         HashMap::new()
     }
@@ -345,27 +378,44 @@ fn save_cache(path: &Path, cache: &HashMap<String, CacheEntry>) -> io::Result<()
     Ok(())
 }
 
+fn enforce_cache_limit(cache: &mut HashMap<String, CacheEntry>, limit: usize) {
+    if limit == 0 || cache.len() <= limit {
+        return;
+    }
+    while cache.len() > limit {
+        if let Some(key) = cache.keys().next().cloned() {
+            cache.remove(&key);
+        } else {
+            break;
+        }
+    }
+}
+
 fn analyze_with_wmb_single(
     path: &Path,
     vendor_dir: &Path,
     min: u32,
+    analysis_window: u32,
+    cache_enabled: bool,
     cache: &Arc<Mutex<HashMap<String, CacheEntry>>>,
 ) -> Result<(Option<u32>, Option<bool>, Option<String>, String), String> {
-    let hash = file_hash(path).ok();
-    if let Some(h) = &hash {
-        if let Ok(guard) = cache.lock() {
-            if let Some(entry) = guard.get(h) {
-                let status = match entry.bitrate {
-                    Some(b) if b < min => "bad".to_string(),
-                    Some(_) => "ok".to_string(),
-                    None => "error".to_string(),
-                };
-                return Ok((
-                    entry.bitrate,
-                    entry.is_lossless,
-                    entry.note.clone(),
-                    status,
-                ));
+    let hash = if cache_enabled { file_hash(path).ok() } else { None };
+    if cache_enabled {
+        if let Some(h) = &hash {
+            if let Ok(guard) = cache.lock() {
+                if let Some(entry) = guard.get(h) {
+                    let status = match entry.bitrate {
+                        Some(b) if b < min => "bad".to_string(),
+                        Some(_) => "ok".to_string(),
+                        None => "error".to_string(),
+                    };
+                    return Ok((
+                        entry.bitrate,
+                        entry.is_lossless,
+                        entry.note.clone(),
+                        status,
+                    ));
+                }
             }
         }
     }
@@ -384,11 +434,14 @@ fn analyze_with_wmb_single(
 import sys, json
 sys.path.insert(0, r"{vendor}")
 from wmb_core import AudioFile
+import wmb_core
+wmb_core.MAX_LOAD_SECONDS = {window}
 af = AudioFile(sys.argv[1])
 af.analyze(generate_spectrogram_flag=False, assets_dir=None)
 print(json.dumps(af.to_dict()))
 "#,
-        vendor = vendor_dir.display()
+        vendor = vendor_dir.display(),
+        window = analysis_window
     );
 
     let output = Command::new(python)
@@ -423,16 +476,19 @@ print(json.dumps(af.to_dict()))
         _ => "error".to_string(),
     };
 
-    if let Some(h) = hash {
-        if let Ok(mut guard) = cache.lock() {
-            guard.insert(
-                h,
-                CacheEntry {
-                    bitrate: est,
-                    is_lossless: lossless,
-                    note: err.clone(),
-                },
-            );
+    if cache_enabled {
+        if let Some(h) = hash {
+            if let Ok(mut guard) = cache.lock() {
+                guard.insert(
+                    h,
+                    CacheEntry {
+                        bitrate: est,
+                        is_lossless: lossless,
+                        note: err.clone(),
+                    },
+                );
+                enforce_cache_limit(&mut *guard, 10_000);
+            }
         }
     }
 
@@ -447,7 +503,9 @@ fn main() {
             download_link,
             scan_folder,
             reveal_in_folder,
-            open_spectrum
+            open_spectrum,
+            get_settings,
+            save_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -464,4 +522,50 @@ fn init_rayon_pool() {
     let _ = ThreadPoolBuilder::new()
         .num_threads(threads)
         .build_global();
+}
+
+fn init_rayon_pool_with(threads: usize) {
+    if rayon::current_num_threads() > 0 {
+        return; // already set
+    }
+    let count = if threads > 0 {
+        threads
+    } else {
+        std::cmp::max(1, num_cpus::get())
+    };
+    let _ = ThreadPoolBuilder::new()
+        .num_threads(count)
+        .build_global();
+}
+
+fn load_settings_path(app: &tauri::AppHandle) -> Settings {
+    let path = settings_path(app);
+    if let Ok(text) = fs::read_to_string(&path) {
+        serde_json::from_str(&text).unwrap_or_default()
+    } else {
+        Settings::default()
+    }
+}
+
+#[tauri::command]
+fn get_settings(app: tauri::AppHandle) -> Settings {
+    load_settings_path(&app)
+}
+
+#[tauri::command]
+fn save_settings(app: tauri::AppHandle, settings: Settings) -> Result<(), String> {
+    let path = settings_path(&app);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    fs::write(&path, serde_json::to_string_pretty(&settings).unwrap_or_default())
+        .map_err(|e| e.to_string())
+}
+
+fn settings_path(app: &tauri::AppHandle) -> PathBuf {
+    app.path_resolver()
+        .app_data_dir()
+        .or_else(|| app.path_resolver().app_cache_dir())
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+        .join("settings.json")
 }
