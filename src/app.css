@@ -135,6 +135,8 @@ body {
 .actions-inline {
   display: flex;
   justify-content: flex-start;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .btn {
