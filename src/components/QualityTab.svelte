@@ -10,6 +10,7 @@
   let progress = 0
   let unlistenProgress
   let spectra = {}
+  let spectroLoading = {}
 
   async function pickFolder() {
     if (!window.__TAURI__) return
@@ -84,13 +85,18 @@
   async function spectrum(path) {
     if (!window.__TAURI__) return
     try {
+      spectroLoading = { ...spectroLoading, [path]: true }
+      spectra = { ...spectra, [path]: undefined }
       const imgPath = await invoke('open_spectrum', { path })
       const url = convertFileSrc(imgPath)
       spectra = { ...spectra, [path]: url }
       scanMessage = 'Spectre généré'
     } catch (err) {
       console.error(err)
+      spectra = { ...spectra, [path]: 'error' }
       scanMessage = err?.message || 'Échec génération spectre.'
+    } finally {
+      spectroLoading = { ...spectroLoading, [path]: false }
     }
   }
 </script>
@@ -149,11 +155,15 @@
             <button class="btn mini ghost" on:click={() => reveal(item.path)}>Voir</button>
             <button class="btn mini" on:click={() => spectrum(item.path)}>Spectre</button>
           </div>
-          {#if spectra[item.path]}
-            <div class="spectrum" style="grid-column: 1 / -1;">
+          <div class="spectrum" style="grid-column: 1 / -1;">
+            {#if spectroLoading[item.path]}
+              <div class="skeleton"></div>
+            {:else if spectra[item.path] === 'error'}
+              <div class="skeleton error">Spectre indisponible</div>
+            {:else if spectra[item.path]}
               <img src={spectra[item.path]} alt={`Spectrogramme ${item.name}`} loading="lazy" />
-            </div>
-          {/if}
+            {/if}
+          </div>
         </div>
       {/each}
     </div>
