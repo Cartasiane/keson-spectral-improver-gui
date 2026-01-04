@@ -19,6 +19,9 @@
     rayon_threads: 0,
     cache_enabled: true,
     cache_max_entries: 10000,
+    core_api_url: "",
+    core_api_user: "",
+    core_api_password: "",
   };
   let settingsLoading = false;
   let settingsMessage = "";

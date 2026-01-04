@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -19,6 +20,8 @@ use tauri::path::BaseDirectory;
 use tauri::{async_runtime, Emitter};
 use tauri::Manager;
 use walkdir::WalkDir;
+use reqwest::header::{AUTHORIZATION, HeaderValue};
+use base64::{Engine as _, engine::general_purpose};
 
 #[derive(Serialize)]
 struct QueueStats {
@@ -67,6 +70,9 @@ struct Settings {
     rayon_threads: usize, // 0 = default logical cores
     cache_enabled: bool,
     cache_max_entries: usize,
+    core_api_url: Option<String>,
+    core_api_user: Option<String>,
+    core_api_password: Option<String>,
 }
 
 impl Default for Settings {
@@ -77,6 +83,9 @@ impl Default for Settings {
             rayon_threads: 0,
             cache_enabled: true,
             cache_max_entries: 10_000,
+            core_api_url: None,
+            core_api_user: None,
+            core_api_password: None,
         }
     }
 }
@@ -96,12 +105,16 @@ fn download_link(
     app: tauri::AppHandle,
 ) -> Result<DownloadResult, String> {
     let out_dir = output_dir.unwrap_or_else(|| String::from("./"));
-    let _settings = load_settings_path(&app);
+    let settings = load_settings_path(&app);
 
-    // Check if we should use remote server
-    // For now, let's assume if a remote URL is configured in settings (we need to add this to settings struct first), we use it.
-    // But since I haven't updated Settings struct yet, I'll stick to local execution for now,
-    // or I can add a quick check for an environment variable or just default to local.
+    // If API URL is configured, use the remote API
+    if let Some(api_url) = &settings.core_api_url {
+        if !api_url.trim().is_empty() {
+            return download_via_api(&url, &out_dir, &settings);
+        }
+    }
+
+    // Fallback to local execution (embedded Node script)
 
     // Let's implement local execution using the new musicdl wrapper in keson-core first.
 
@@ -178,6 +191,92 @@ fn download_link(
             .and_then(|v| v.as_str())
             .unwrap_or(&out_dir)
             .to_string(),
+    })
+}
+
+fn download_via_api(
+    url: &str,
+    output_dir: &str,
+    settings: &Settings,
+) -> Result<DownloadResult, String> {
+    let api_url = settings.core_api_url.as_ref().unwrap().trim_end_matches('/');
+    let client = reqwest::blocking::Client::new();
+    
+    // prepare auth
+    let mut req_builder = client.post(format!("{}/download-any", api_url));
+    
+    if let (Some(u), Some(p)) = (&settings.core_api_user, &settings.core_api_password) {
+        if !u.is_empty() {
+             req_builder = req_builder.basic_auth(u, Some(p));
+        }
+    }
+
+    let res = req_builder
+        .json(&serde_json::json!({ "url": url }))
+        .send()
+        .map_err(|e| format!("API request failed: {e}"))?;
+
+    if !res.status().is_success() {
+        let status = res.status();
+        let text = res.text().unwrap_or_default();
+        return Err(format!("API Error ({}): {}", status, text));
+    }
+
+    let body: serde_json::Value = res.json().map_err(|e| format!("Invalid JSON: {e}"))?;
+    
+    if let Some(err) = body.get("error").and_then(|s| s.as_str()) {
+         return Err(format!("API returned error: {}", err));
+    }
+
+    let download_url = body.get("downloadUrl").and_then(|s| s.as_str())
+        .ok_or("No downloadUrl in response")?;
+    let filename = body.get("filename").and_then(|s| s.as_str())
+        .ok_or("No filename in response")?;
+
+    // Construct full download URL (handling relative paths)
+    let full_dl_url = if download_url.starts_with("http") {
+        download_url.to_string()
+    } else {
+        format!("{}{}", api_url, download_url)
+    };
+
+    // Download the file
+    let mut dl_req = client.get(&full_dl_url);
+    if let (Some(u), Some(p)) = (&settings.core_api_user, &settings.core_api_password) {
+        if !u.is_empty() {
+             dl_req = dl_req.basic_auth(u, Some(p));
+        }
+    }
+    let mut dl_res = dl_req.send().map_err(|e| format!("Download failed: {e}"))?;
+    
+    if !dl_res.status().is_success() {
+         return Err(format!("File download failed: {}", dl_res.status()));
+    }
+
+    fs::create_dir_all(output_dir).map_err(|e| format!("Create dir failed: {e}"))?;
+    let dest_path = Path::new(output_dir).join(filename);
+    let mut file = fs::File::create(&dest_path).map_err(|e| format!("Create file failed: {e}"))?;
+    dl_res.copy_to(&mut file).map_err(|e| format!("Save file failed: {e}"))?;
+
+    // Extract metadata for result
+    let quality = body.get("quality")
+        .and_then(|q| q.get("estimated_bitrate")) // quality object structure
+        .map(|v| v.to_string())
+        .or_else(|| body.get("quality").and_then(|q| q.get("estimated_bitrate_numeric")).map(|v| v.to_string()))
+        .unwrap_or_else(|| "Unknown".to_string());
+
+    let title = body.get("metadata")
+        .and_then(|m| m.get("title"))
+        .and_then(|s| s.as_str())
+        .unwrap_or(filename)
+        .to_string();
+
+    Ok(DownloadResult {
+        title,
+        caption: url.to_string(),
+        quality,
+        warning: String::new(),
+        saved_to: dest_path.to_string_lossy().to_string(),
     })
 }
 
