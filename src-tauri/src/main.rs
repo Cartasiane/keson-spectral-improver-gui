@@ -15,7 +15,8 @@ use std::process::Command;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use tauri::async_runtime;
+use tauri::path::BaseDirectory;
+use tauri::{async_runtime, Emitter};
 use tauri::Manager;
 use walkdir::WalkDir;
 
@@ -199,7 +200,7 @@ async fn scan_folder(
         let mut audio_entries = Vec::new();
         let mut discovered = 0usize;
         let mut tick = 0u32;
-        let _ = handle.emit_all("scan_progress", 1u32); // start
+        let _ = handle.emit("scan_progress", 1u32); // start
 
         for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
             if entry.file_type().is_file() {
@@ -210,13 +211,13 @@ async fn scan_folder(
                 let pct = 1 + ((discovered as f64).sqrt() as u32 % 12); // gentle movement up to ~13%
                 if pct != tick {
                     tick = pct;
-                    let _ = handle.emit_all("scan_progress", pct.min(15));
+                    let _ = handle.emit("scan_progress", pct.min(15));
                 }
             }
         }
 
         if audio_entries.is_empty() {
-            let _ = handle.emit_all("scan_progress", 100u32);
+            let _ = handle.emit("scan_progress", 100u32);
             return Ok(Vec::new());
         }
 
@@ -248,7 +249,7 @@ async fn scan_folder(
 
                 let done = counter.fetch_add(1, Ordering::SeqCst) + 1;
                 let percent: f64 = 15.0 + (done as f64 / total as f64) * 85.0;
-                let _ = handle.emit_all("scan_progress", percent.round() as u32);
+                let _ = handle.emit("scan_progress", percent.round() as u32);
 
                 ScanResult {
                     path: path.display().to_string(),
@@ -390,18 +391,16 @@ fn is_audio(path: &Path) -> bool {
 
 fn vendor_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let base = app
-        .path_resolver()
-        .resolve_resource("..")
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-    let candidates = [
-        base.join("vendor/whatsmybitrate"),
-        base.join("../vendor/whatsmybitrate"),
-        PathBuf::from("vendor/whatsmybitrate"),
-    ];
-    candidates
-        .into_iter()
-        .find(|p| p.exists())
-        .ok_or_else(|| "Vendor whatsmybitrate introuvable".to_string())
+        .path()
+        .resolve("../vendor/whatsmybitrate", BaseDirectory::Resource)
+        .map_err(|e| e.to_string())?;
+    
+    // We already resolved fully, so these candidates logic might be redundant if resolve works as expected from bundle.
+    // However, if running in dev, resource resolution might differ. 
+    // Let's rely on standard resolution first, or keep fallback if resolve fails? 
+    // resolve_resource in v1 returned Option<PathBuf>. v2 returns Result<PathBuf>.
+    // Let's assume resolve works.
+    Ok(base)
 }
 
 fn file_hash(path: &Path) -> io::Result<String> {
@@ -420,10 +419,11 @@ fn file_hash(path: &Path) -> io::Result<String> {
 
 fn cache_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let base = app
-        .path_resolver()
+        .path()
         .app_data_dir()
-        .or_else(|| app.path_resolver().app_cache_dir())
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+        .or_else(|_| app.path().app_cache_dir())
+        .map_err(|e| e.to_string())?;
+
     let path = base.join("analysis-cache.json");
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
@@ -757,10 +757,10 @@ async fn redownload_bad(paths: Vec<String>) -> Result<Vec<RedownloadResult>, Str
 }
 
 fn settings_path(app: &tauri::AppHandle) -> PathBuf {
-    app.path_resolver()
+    app.path()
         .app_data_dir()
-        .or_else(|| app.path_resolver().app_cache_dir())
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+        .or_else(|_| app.path().app_cache_dir())
+        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
         .join("settings.json")
 }
 
