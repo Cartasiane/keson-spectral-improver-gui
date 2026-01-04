@@ -41,11 +41,11 @@
   async function checkForUpdates() {
     if (!isDesktop) return;
     try {
-      const { checkUpdate } = await import("@tauri-apps/api/updater");
-      const update = await checkUpdate();
-      if (update.shouldUpdate) {
-        updateAvailable = update.manifest;
-        console.log("Update available:", update.manifest);
+      const { check } = await import("@tauri-apps/plugin-updater");
+      const update = await check();
+      if (update) {
+        updateAvailable = update;
+        console.log("Update available:", update.version);
       }
     } catch (err) {
       console.log("Update check skipped:", err?.message || err);
@@ -57,10 +57,14 @@
     updateDownloading = true;
     updateProgress = 0;
     try {
-      const { installUpdate } = await import("@tauri-apps/api/updater");
-      const { relaunch } = await import("@tauri-apps/api/process");
+      const { relaunch } = await import("@tauri-apps/plugin-process");
 
-      await installUpdate();
+      await updateAvailable.downloadAndInstall((event) => {
+        if (event.event === "Progress") {
+          const total = event.data.contentLength || 1;
+          updateProgress = Math.round((event.data.chunkLength / total) * 100);
+        }
+      });
       updateProgress = 100;
       await relaunch();
     } catch (err) {

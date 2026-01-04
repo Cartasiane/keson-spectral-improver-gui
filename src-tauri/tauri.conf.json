@@ -1,53 +1,53 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "package": {
-    "productName": "Keson Spectral Improver",
-    "version": "0.1.0"
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "resources": [
+      "../vendor/whatsmybitrate"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "10.13"
+    },
+    "icon": [],
+    "createUpdaterArtifacts": "v1Compatible"
   },
   "build": {
     "beforeBuildCommand": "npm run build",
     "beforeDevCommand": "npm run dev",
-    "devPath": "http://localhost:5173",
-    "distDir": "../dist"
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173"
   },
-  "tauri": {
+  "productName": "Keson Spectral Improver",
+  "mainBinaryName": "Keson Spectral Improver",
+  "version": "0.1.0",
+  "identifier": "com.keson.spectralimprover",
+  "plugins": {
     "updater": {
-      "active": true,
-      "dialog": false,
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQyN0U1RDIwMDhBRUExMjIKUldRaW9hNElJRjErUXF5TUt0N09qeExBWnpUYmlRMi9YN2JWQUpyWXdJUVlmQ0ZLaVR4R1ZZcU0K",
       "endpoints": [
         "https://github.com/Cartasiane/keson-spectral-improver-gui/releases/latest/download/latest.json"
       ]
-    },
-    "bundle": {
-      "active": true,
-      "targets": "all",
-      "identifier": "com.keson.spectralimprover",
-      "macOS": {
-        "minimumSystemVersion": "10.13"
-      },
-      "icon": [],
-      "resources": [
-        "../vendor/whatsmybitrate"
-      ]
-    },
-    "windows": [
-      {
-        "title": "Keson Spectral Improver",
-        "width": 1100,
-        "height": 780
-      }
-    ],
-    "allowlist": {
-      "all": true,
-      "protocol": {
-        "assetScope": [
+    }
+  },
+  "app": {
+    "security": {
+      "assetProtocol": {
+        "scope": [
           "$APP/**",
           "$RESOURCE/**",
           "$TEMP/**",
           "$HOME/**"
         ]
       }
-    }
+    },
+    "windows": [
+      {
+        "title": "Keson Spectral Improver",
+        "width": 1100,
+        "height": 780,
+        "useHttpsScheme": true
+      }
+    ]
   }
 }

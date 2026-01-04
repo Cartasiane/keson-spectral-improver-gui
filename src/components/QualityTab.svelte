@@ -3,7 +3,7 @@
   import ScanSummary from './ScanSummary.svelte'
   import ScanRow from './ScanRow.svelte'
   import { onDestroy } from 'svelte'
-  import { convertFileSrc } from '@tauri-apps/api/tauri'
+  import { convertFileSrc } from '@tauri-apps/api/core'
   import {
     isDesktop,
     pickFolderDialog,

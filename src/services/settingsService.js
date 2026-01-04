@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/tauri'
+import { invoke } from '@tauri-apps/api/core'
 
 // Small helper around Tauri settings calls so components stay lean.
 export const isDesktop = typeof window !== 'undefined' && !!window.__TAURI__

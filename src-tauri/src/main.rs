@@ -1,23 +1,23 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use serde::{Deserialize, Serialize};
-use tauri::Manager;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use walkdir::WalkDir;
-use tauri::async_runtime;
-use rayon::prelude::*;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use hex;
+use num_cpus;
 use rayon::iter::IntoParallelRefIterator;
+use rayon::prelude::*;
+use rayon::ThreadPoolBuilder;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::fs;
 use std::io::{self, Read};
-use sha2::{Sha256, Digest};
-use hex;
-use rayon::ThreadPoolBuilder;
-use num_cpus;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use tauri::async_runtime;
+use tauri::Manager;
+use walkdir::WalkDir;
 
 #[derive(Serialize)]
 struct QueueStats {
@@ -65,7 +65,7 @@ struct Settings {
     analysis_window_seconds: u32,
     rayon_threads: usize, // 0 = default logical cores
     cache_enabled: bool,
-    cache_max_entries: usize
+    cache_max_entries: usize,
 }
 
 impl Default for Settings {
@@ -82,21 +82,28 @@ impl Default for Settings {
 
 #[tauri::command]
 fn queue_stats() -> QueueStats {
-    QueueStats { active: 0, pending: 0 }
+    QueueStats {
+        active: 0,
+        pending: 0,
+    }
 }
 
 #[tauri::command]
-fn download_link(url: String, output_dir: Option<String>, app: tauri::AppHandle) -> Result<DownloadResult, String> {
+fn download_link(
+    url: String,
+    output_dir: Option<String>,
+    app: tauri::AppHandle,
+) -> Result<DownloadResult, String> {
     let out_dir = output_dir.unwrap_or_else(|| String::from("./"));
     let _settings = load_settings_path(&app);
 
     // Check if we should use remote server
     // For now, let's assume if a remote URL is configured in settings (we need to add this to settings struct first), we use it.
-    // But since I haven't updated Settings struct yet, I'll stick to local execution for now, 
+    // But since I haven't updated Settings struct yet, I'll stick to local execution for now,
     // or I can add a quick check for an environment variable or just default to local.
-    
+
     // Let's implement local execution using the new musicdl wrapper in keson-core first.
-    
+
     let script = r#"
       const fs = require('fs');
       const path = require('path');
@@ -145,13 +152,25 @@ fn download_link(url: String, output_dir: Option<String>, app: tauri::AppHandle)
         ));
     }
 
-    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .map_err(|e| format!("Réponse core invalide: {e}: {}", String::from_utf8_lossy(&output.stdout)))?;
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|e| {
+        format!(
+            "Réponse core invalide: {e}: {}",
+            String::from_utf8_lossy(&output.stdout)
+        )
+    })?;
 
     Ok(DownloadResult {
-        title: parsed.get("title").and_then(|v| v.as_str()).unwrap_or("Track").to_string(),
+        title: parsed
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Track")
+            .to_string(),
         caption: url,
-        quality: parsed.get("quality").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        quality: parsed
+            .get("quality")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
         warning: String::new(),
         saved_to: parsed
             .get("saved_to")
@@ -203,7 +222,10 @@ async fn scan_folder(
 
         let vendor = vendor_dir(&handle)?;
         let cache_path = cache_path(&handle)?;
-        let cache = Arc::new(Mutex::new(load_cache(&cache_path, settings.cache_max_entries)));
+        let cache = Arc::new(Mutex::new(load_cache(
+            &cache_path,
+            settings.cache_max_entries,
+        )));
         let total = audio_entries.len();
         let counter = AtomicUsize::new(0);
 
@@ -353,7 +375,11 @@ Installe-les : pip install -r vendor/whatsmybitrate/requirements.txt"
 }
 
 fn is_audio(path: &Path) -> bool {
-    match path.extension().and_then(|e| e.to_str()).map(|s| s.to_lowercase()) {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|s| s.to_lowercase())
+    {
         Some(ext) => matches!(
             ext.as_str(),
             "mp3" | "m4a" | "aac" | "wav" | "flac" | "ogg" | "opus" | "webm"
@@ -407,8 +433,7 @@ fn cache_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 fn load_cache(path: &Path, limit: usize) -> HashMap<String, CacheEntry> {
     if let Ok(text) = fs::read_to_string(path) {
-        let mut map: HashMap<String, CacheEntry> =
-            serde_json::from_str(&text).unwrap_or_default();
+        let mut map: HashMap<String, CacheEntry> = serde_json::from_str(&text).unwrap_or_default();
         enforce_cache_limit(&mut map, limit);
         map
     } else {
@@ -447,7 +472,11 @@ fn analyze_with_wmb_single(
     cache_enabled: bool,
     cache: &Arc<Mutex<HashMap<String, CacheEntry>>>,
 ) -> Result<(Option<u32>, Option<bool>, Option<String>, String), String> {
-    let hash = if cache_enabled { file_hash(path).ok() } else { None };
+    let hash = if cache_enabled {
+        file_hash(path).ok()
+    } else {
+        None
+    };
     if cache_enabled {
         if let Some(h) = &hash {
             if let Ok(guard) = cache.lock() {
@@ -457,12 +486,7 @@ fn analyze_with_wmb_single(
                         Some(_) => "ok".to_string(),
                         None => "error".to_string(),
                     };
-                    return Ok((
-                        entry.bitrate,
-                        entry.is_lossless,
-                        entry.note.clone(),
-                        status,
-                    ));
+                    return Ok((entry.bitrate, entry.is_lossless, entry.note.clone(), status));
                 }
             }
         }
@@ -546,6 +570,16 @@ print(json.dumps(af.to_dict()))
 fn main() {
     init_rayon_pool();
     tauri::Builder::default()
+        .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
             queue_stats,
             download_link,
@@ -570,9 +604,7 @@ fn init_rayon_pool() {
         .filter(|&n| n > 0)
         .unwrap_or_else(|| std::cmp::max(1, num_cpus::get()));
 
-    let _ = ThreadPoolBuilder::new()
-        .num_threads(threads)
-        .build_global();
+    let _ = ThreadPoolBuilder::new().num_threads(threads).build_global();
 }
 
 fn init_rayon_pool_with(threads: usize) {
@@ -584,9 +616,7 @@ fn init_rayon_pool_with(threads: usize) {
     } else {
         std::cmp::max(1, num_cpus::get())
     };
-    let _ = ThreadPoolBuilder::new()
-        .num_threads(count)
-        .build_global();
+    let _ = ThreadPoolBuilder::new().num_threads(count).build_global();
 }
 
 fn load_settings_path(app: &tauri::AppHandle) -> Settings {
@@ -609,8 +639,11 @@ fn save_settings(app: tauri::AppHandle, settings: Settings) -> Result<(), String
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    fs::write(&path, serde_json::to_string_pretty(&settings).unwrap_or_default())
-        .map_err(|e| e.to_string())
+    fs::write(
+        &path,
+        serde_json::to_string_pretty(&settings).unwrap_or_default(),
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -632,7 +665,7 @@ async fn redownload_bad(paths: Vec<String>) -> Result<Vec<RedownloadResult>, Str
 
             let search_url = format!("https://soundcloud.com/search?q={}", stem);
             let dest_dir = parent.to_string_lossy().to_string();
-            
+
             let script = r#"
               const fs = require('fs');
               const path = require('path');
@@ -679,14 +712,25 @@ async fn redownload_bad(paths: Vec<String>) -> Result<Vec<RedownloadResult>, Str
 
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                eprintln!("musicdl failed for '{}':\nstatus: {:?}\nstdout:\n{}\nstderr:\n{}", stem, output.status, String::from_utf8_lossy(&output.stdout), stderr);
-                return Err(format!("Téléchargement échoué pour {}: {}", stem, stderr.trim()));
+                eprintln!(
+                    "musicdl failed for '{}':\nstatus: {:?}\nstdout:\n{}\nstderr:\n{}",
+                    stem,
+                    output.status,
+                    String::from_utf8_lossy(&output.stdout),
+                    stderr
+                );
+                return Err(format!(
+                    "Téléchargement échoué pour {}: {}",
+                    stem,
+                    stderr.trim()
+                ));
             }
 
             let parsed: serde_json::Value = serde_json::from_slice(&output.stdout)
                 .map_err(|e| format!("Parse error: {}", e))?;
-            
-            let new_path = parsed.get("filepath")
+
+            let new_path = parsed
+                .get("filepath")
                 .and_then(|v| v.as_str())
                 .map(PathBuf::from)
                 .ok_or_else(|| "No filepath in response".to_string())?;
@@ -736,7 +780,11 @@ fn accept_redownload(original: String, new_path: String) -> Result<String, Strin
     // Backup old file
     if orig.exists() {
         let ext = orig.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let backup_ext = if ext.is_empty() { "bak".to_string() } else { format!("bak.{}", ext) };
+        let backup_ext = if ext.is_empty() {
+            "bak".to_string()
+        } else {
+            format!("bak.{}", ext)
+        };
         let backup = orig.with_extension(backup_ext);
         let _ = fs::rename(&orig, &backup);
     }
@@ -757,9 +805,12 @@ fn discard_file(path: String) -> Result<(), String> {
 fn probe_duration(path: &Path) -> Option<f64> {
     let output = Command::new("ffprobe")
         .args([
-            "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
             path.to_string_lossy().as_ref(),
         ])
         .output()
@@ -788,7 +839,10 @@ fn find_latest_in_dir(dir: &Path) -> Option<PathBuf> {
     entries.sort_by(|a, b| b.0.cmp(&a.0));
     entries.into_iter().map(|(_, p)| p).find(|p| {
         if let Some(ext) = p.extension().and_then(|s| s.to_str()) {
-            matches!(ext, "mp3" | "m4a" | "opus" | "webm" | "m4b" | "ogg" | "flac")
+            matches!(
+                ext,
+                "mp3" | "m4a" | "opus" | "webm" | "m4b" | "ogg" | "flac"
+            )
         } else {
             false
         }
