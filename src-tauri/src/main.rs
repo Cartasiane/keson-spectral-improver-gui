@@ -17,6 +17,7 @@ use sha2::{Sha256, Digest};
 use hex;
 use rayon::ThreadPoolBuilder;
 use num_cpus;
+use std::str::FromStr;
 
 #[derive(Serialize)]
 struct QueueStats {
@@ -31,6 +32,14 @@ struct DownloadResult {
     quality: String,
     warning: String,
     saved_to: String,
+}
+
+#[derive(Serialize)]
+struct RedownloadResult {
+    original_path: String,
+    new_path: String,
+    original_duration: Option<f64>,
+    new_duration: Option<f64>,
 }
 
 #[derive(Serialize)]
@@ -77,15 +86,78 @@ fn queue_stats() -> QueueStats {
 }
 
 #[tauri::command]
-fn download_link(url: String, output_dir: Option<String>) -> Result<DownloadResult, String> {
-    // TODO: bridge to Node core (spawn a sidecar or call a background service)
-    let target = output_dir.unwrap_or_else(|| "~/Music".to_string());
+fn download_link(url: String, output_dir: Option<String>, app: tauri::AppHandle) -> Result<DownloadResult, String> {
+    let out_dir = output_dir.unwrap_or_else(|| String::from("./"));
+    let _settings = load_settings_path(&app);
+
+    // Check if we should use remote server
+    // For now, let's assume if a remote URL is configured in settings (we need to add this to settings struct first), we use it.
+    // But since I haven't updated Settings struct yet, I'll stick to local execution for now, 
+    // or I can add a quick check for an environment variable or just default to local.
+    
+    // Let's implement local execution using the new musicdl wrapper in keson-core first.
+    
+    let script = r#"
+      const fs = require('fs');
+      const path = require('path');
+      const core = require('../keson-spectral-improver-core');
+      const url = process.argv[2];
+      const destDir = process.argv[3];
+      // We can pass token/source via env vars or args if needed. 
+      // For now, simple usage.
+      
+      (async () => {
+        const res = await core.downloadTrack(url);
+        const src = res.path;
+        if (!src) throw new Error('No file path returned by core');
+        
+        const filename = res.filename || path.basename(src);
+        const targetDir = destDir || '.';
+        fs.mkdirSync(targetDir, { recursive: true });
+        const dest = path.join(targetDir, filename);
+        
+        // Move file from temp to dest
+        if (src !== dest) fs.renameSync(src, dest);
+        
+        const title = (res.metadata && (res.metadata.title || res.metadata.name)) || filename;
+        const quality = res.metadata && (res.metadata.bitrate || res.metadata.quality || '');
+        
+        console.log(JSON.stringify({ saved_to: dest, title, quality }));
+      })().catch((err) => {
+        console.error(err && err.stack ? err.stack : String(err));
+        process.exit(1);
+      });
+    "#;
+
+    let output = Command::new("node")
+        .arg("-e")
+        .arg(script)
+        .arg(&url)
+        .arg(&out_dir)
+        .current_dir("../")
+        .output()
+        .map_err(|e| format!("Node exec failed: {e}"))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "Téléchargement échoué: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|e| format!("Réponse core invalide: {e}: {}", String::from_utf8_lossy(&output.stdout)))?;
+
     Ok(DownloadResult {
-        title: "Placeholder".into(),
+        title: parsed.get("title").and_then(|v| v.as_str()).unwrap_or("Track").to_string(),
         caption: url,
-        quality: "Unknown".into(),
+        quality: parsed.get("quality").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         warning: String::new(),
-        saved_to: target,
+        saved_to: parsed
+            .get("saved_to")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&out_dir)
+            .to_string(),
     })
 }
 
@@ -306,30 +378,6 @@ fn vendor_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .ok_or_else(|| "Vendor whatsmybitrate introuvable".to_string())
 }
 
-fn probe_bitrate(path: &Path) -> Result<u32, String> {
-    let output = Command::new("ffprobe")
-        .args([
-            "-v",
-            "error",
-            "-show_entries",
-            "format=bit_rate",
-            "-of",
-            "default=nk=1:nw=1",
-            path.to_str().unwrap_or_default(),
-        ])
-        .output()
-        .map_err(|e| format!("ffprobe: {e}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "ffprobe failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-    let txt = String::from_utf8_lossy(&output.stdout);
-    let val: f64 = txt.trim().parse().map_err(|_| "parse failed".to_string())?;
-    Ok((val / 1000.0).round() as u32)
-}
-
 fn file_hash(path: &Path) -> io::Result<String> {
     let mut file = fs::File::open(path)?;
     let mut hasher = Sha256::new();
@@ -505,7 +553,10 @@ fn main() {
             reveal_in_folder,
             open_spectrum,
             get_settings,
-            save_settings
+            save_settings,
+            redownload_bad,
+            accept_redownload,
+            discard_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -562,10 +613,184 @@ fn save_settings(app: tauri::AppHandle, settings: Settings) -> Result<(), String
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn redownload_bad(paths: Vec<String>) -> Result<Vec<RedownloadResult>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut downloaded = Vec::new();
+        for path_str in paths {
+            let path = PathBuf::from(&path_str);
+            let stem = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .ok_or_else(|| "Nom de fichier invalide".to_string())?;
+            let parent = path
+                .parent()
+                .map(PathBuf::from)
+                .ok_or_else(|| "Chemin sans dossier".to_string())?;
+
+            eprintln!("[musicdl] target='{}' dir='{}'", stem, parent.display());
+
+            let search_url = format!("https://soundcloud.com/search?q={}", stem);
+            let dest_dir = parent.to_string_lossy().to_string();
+            
+            let script = r#"
+              const fs = require('fs');
+              const path = require('path');
+              const core = require('../keson-spectral-improver-core');
+              const searchQuery = process.argv[2];
+              const destDir = process.argv[3];
+              
+              (async () => {
+                // For redownload, we search on SoundCloud and download the best match
+                const res = await core.downloadTrack(searchQuery);
+                const src = res.path;
+                if (!src) throw new Error('No file path returned by core');
+                
+                const filename = res.filename || path.basename(src);
+                const targetDir = destDir || '.';
+                fs.mkdirSync(targetDir, { recursive: true });
+                const dest = path.join(targetDir, filename);
+                
+                if (src !== dest) fs.renameSync(src, dest);
+                
+                console.log(JSON.stringify({ filepath: dest }));
+              })().catch((err) => {
+                console.error(err && err.stack ? err.stack : String(err));
+                process.exit(1);
+              });
+            "#;
+
+            let output = Command::new("node")
+                .arg("-e")
+                .arg(script)
+                .arg(search_url)
+                .arg(&dest_dir)
+                .current_dir("../")
+                .output()
+                .map_err(|e| format!("Node exec failed: {}", e))?;
+
+            eprintln!(
+                "[musicdl] status for '{}': {:?}\nstdout:\n{}\nstderr:\n{}",
+                stem,
+                output.status,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                eprintln!("musicdl failed for '{}':\nstatus: {:?}\nstdout:\n{}\nstderr:\n{}", stem, output.status, String::from_utf8_lossy(&output.stdout), stderr);
+                return Err(format!("Téléchargement échoué pour {}: {}", stem, stderr.trim()));
+            }
+
+            let parsed: serde_json::Value = serde_json::from_slice(&output.stdout)
+                .map_err(|e| format!("Parse error: {}", e))?;
+            
+            let new_path = parsed.get("filepath")
+                .and_then(|v| v.as_str())
+                .map(PathBuf::from)
+                .ok_or_else(|| "No filepath in response".to_string())?;
+
+            if !new_path.exists() {
+                eprintln!("musicdl filepath missing on disk: {}", new_path.display());
+                return Err("Fichier téléchargé introuvable".to_string());
+            }
+
+            let original_dur = probe_duration(&path);
+            let new_dur = probe_duration(&new_path);
+
+            downloaded.push(RedownloadResult {
+                original_path: path.to_string_lossy().to_string(),
+                new_path: new_path.to_string_lossy().to_string(),
+                original_duration: original_dur,
+                new_duration: new_dur,
+            });
+        }
+        Ok(downloaded)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 fn settings_path(app: &tauri::AppHandle) -> PathBuf {
     app.path_resolver()
         .app_data_dir()
         .or_else(|| app.path_resolver().app_cache_dir())
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
         .join("settings.json")
+}
+
+#[tauri::command]
+fn accept_redownload(original: String, new_path: String) -> Result<String, String> {
+    let orig = PathBuf::from(&original);
+    let newp = PathBuf::from(&new_path);
+
+    if !newp.exists() {
+        return Err("Fichier téléchargé introuvable".into());
+    }
+
+    if let Some(parent) = orig.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    // Backup old file
+    if orig.exists() {
+        let ext = orig.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let backup_ext = if ext.is_empty() { "bak".to_string() } else { format!("bak.{}", ext) };
+        let backup = orig.with_extension(backup_ext);
+        let _ = fs::rename(&orig, &backup);
+    }
+
+    fs::rename(&newp, &orig).map_err(|e| e.to_string())?;
+    Ok(orig.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn discard_file(path: String) -> Result<(), String> {
+    let p = PathBuf::from(path);
+    if p.exists() {
+        fs::remove_file(p).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn probe_duration(path: &Path) -> Option<f64> {
+    let output = Command::new("ffprobe")
+        .args([
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let line = text.lines().next()?.trim();
+    f64::from_str(line).ok()
+}
+
+fn find_latest_in_dir(dir: &Path) -> Option<PathBuf> {
+    let mut entries: Vec<(std::time::SystemTime, PathBuf)> = fs::read_dir(dir)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+        .filter_map(|e| {
+            let meta = e.metadata().ok()?;
+            let m = meta.modified().ok()?;
+            Some((m, e.path()))
+        })
+        .collect();
+
+    entries.sort_by(|a, b| b.0.cmp(&a.0));
+    entries.into_iter().map(|(_, p)| p).find(|p| {
+        if let Some(ext) = p.extension().and_then(|s| s.to_str()) {
+            matches!(ext, "mp3" | "m4a" | "opus" | "webm" | "m4b" | "ogg" | "flac")
+        } else {
+            false
+        }
+    })
 }

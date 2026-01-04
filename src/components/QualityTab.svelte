@@ -1,24 +1,42 @@
 <script>
-  import { invoke, convertFileSrc } from '@tauri-apps/api/tauri'
-  import { listen } from '@tauri-apps/api/event'
+  import ScanControls from './ScanControls.svelte'
+  import ScanSummary from './ScanSummary.svelte'
+  import ScanRow from './ScanRow.svelte'
+  import { onDestroy } from 'svelte'
+  import { convertFileSrc } from '@tauri-apps/api/tauri'
+  import {
+    isDesktop,
+    pickFolderDialog,
+    scanFolder as performScan,
+    revealInFolder,
+    openSpectrum,
+    listenScanProgress,
+    redownloadBad,
+    acceptRedownload,
+    discardFile
+  } from '../services/scanService'
 
   let scanFolder = ''
   let scanning = false
   let scanResults = []
   let scanMessage = ''
-  let isMock = typeof window !== 'undefined' && !window.__TAURI__
+  let filter = 'bad'
   let progress = 0
+  let progressLabel = ''
+  let retrying = false
+  let reviewQueue = []
   let unlistenProgress
   let spectra = {}
   let spectroLoading = {}
 
+  $: filteredResults =
+    filter === 'all'
+      ? scanResults
+      : scanResults.filter((r) => r.status === filter)
+
   async function pickFolder() {
-    if (!window.__TAURI__) return
-    const { open } = await import('@tauri-apps/api/dialog')
-    const choice = await open({ directory: true })
-    if (choice && typeof choice === 'string') {
-      scanFolder = choice
-    }
+    const choice = await pickFolderDialog()
+    if (choice) scanFolder = choice
   }
 
   async function runScan() {
@@ -26,7 +44,7 @@
       scanMessage = 'Choisis un dossier à analyser.'
       return
     }
-    if (!window.__TAURI__) {
+    if (!isDesktop) {
       scanMessage = 'Scan dispo seulement en mode desktop.'
       return
     }
@@ -35,7 +53,7 @@
     progress = 0
     await startProgressListener()
     try {
-      const results = await invoke('scan_folder', { folder: scanFolder, minKbps: 256 })
+      const results = await performScan(scanFolder, 256)
       scanResults = results
       const bad = results.filter(r => r.status === 'bad').length
       scanMessage = bad ? `${bad} fichier(s) sous 256 kbps` : 'Tout est au-dessus de 256 kbps'
@@ -50,20 +68,54 @@
       scanning = false
       stopProgressListener()
       progress = 100
+      progressLabel = ''
     }
   }
 
   async function startProgressListener() {
     stopProgressListener()
-    if (!window.__TAURI__) return
-    unlistenProgress = await listen('scan_progress', event => {
-      const val = Number(event.payload)
-      if (Number.isFinite(val)) {
-        progress = Math.max(0, Math.min(100, val))
+    if (!isDesktop) return
+    unlistenProgress = await listenScanProgress(payload => {
+      // Accept payload as number, string "x/y", or object { current, total, percent }
+      if (typeof payload === 'number' && Number.isFinite(payload)) {
+        progress = clampPercent(payload)
+        progressLabel = `${Math.round(progress)}%`
+        return
+      }
+      if (typeof payload === 'string') {
+        const match = payload.match(/^(\d+)\s*\/\s*(\d+)$/)
+        if (match) {
+          const current = Number(match[1])
+          const total = Number(match[2]) || 0
+          progress = clampPercent((current / Math.max(total, 1)) * 100)
+          progressLabel = `${current}/${total || '?'}`
+          return
+        }
+        const asNumber = Number(payload)
+        if (Number.isFinite(asNumber)) {
+          progress = clampPercent(asNumber)
+          progressLabel = `${Math.round(progress)}%`
+        }
+        return
+      }
+      if (payload && typeof payload === 'object') {
+        const { current, total, percent } = payload
+        if (Number.isFinite(percent)) {
+          progress = clampPercent(percent)
+          progressLabel = `${Math.round(progress)}%`
+          return
+        }
+        if (Number.isFinite(current) && Number.isFinite(total)) {
+          progress = clampPercent((current / Math.max(total, 1)) * 100)
+          progressLabel = `${current}/${total || '?'}`
+        }
       }
     })
     progress = 1
+    progressLabel = '0/?'
   }
+
+  const clampPercent = (val) => Math.max(0, Math.min(100, val))
 
   function stopProgressListener() {
     if (unlistenProgress) {
@@ -73,9 +125,8 @@
   }
 
   async function reveal(path) {
-    if (!window.__TAURI__) return
     try {
-      await invoke('reveal_in_folder', { path })
+      await revealInFolder(path)
     } catch (err) {
       console.error(err)
       scanMessage = err?.message || "Impossible d’ouvrir le dossier."
@@ -83,12 +134,11 @@
   }
 
   async function spectrum(path) {
-    if (!window.__TAURI__) return
+    if (!isDesktop) return
     try {
       spectroLoading = { ...spectroLoading, [path]: true }
       spectra = { ...spectra, [path]: undefined }
-      const imgPath = await invoke('open_spectrum', { path })
-      const url = convertFileSrc(imgPath)
+      const url = await openSpectrum(path)
       spectra = { ...spectra, [path]: url }
       scanMessage = 'Spectre généré'
     } catch (err) {
@@ -99,40 +149,138 @@
       spectroLoading = { ...spectroLoading, [path]: false }
     }
   }
+
+  async function redownloadLow() {
+    const badPaths = scanResults.filter((r) => r.status === 'bad').map((r) => r.path)
+    if (!badPaths.length) {
+      scanMessage = 'Aucun fichier à retélécharger.'
+      return
+    }
+    if (!isDesktop) {
+      scanMessage = 'Retéléchargement dispo seulement en desktop.'
+      return
+    }
+    retrying = true
+    scanMessage = 'Recherche SoundCloud en cours...'
+    reviewQueue = []
+    try {
+      const saved = await redownloadBad(badPaths)
+      const reviewed = buildReviewQueue(saved)
+      reviewQueue = reviewed
+      const flagged = reviewed.filter((r) => r.mismatch).length
+      scanMessage = flagged
+        ? `Retéléchargé ${saved.length}, ${flagged} à vérifier (durée différente).`
+        : `Retéléchargé ${saved.length} fichier(s) (durées ok).`
+    } catch (err) {
+      console.error(err)
+      scanMessage = typeof err === 'string' ? err : err?.message || 'Échec du retéléchargement'
+    } finally {
+      retrying = false
+    }
+  }
+
+  function buildReviewQueue(results) {
+    const toleranceSec = 2
+    const tolerancePct = 0.05
+    return results.map((item) => {
+      if (!item.original_path || !item.new_path) return null
+      if (item.new_path === 'NA') return null
+      const orig = item.original_duration ?? 0
+      const fresh = item.new_duration ?? 0
+      const diff = Math.abs(orig - fresh)
+      const rel = orig > 0 ? diff / orig : 1
+      const mismatch = diff > toleranceSec && rel > tolerancePct
+      return {
+        ...item,
+        mismatch,
+        origUrl: convertFileSrc(item.original_path),
+        newUrl: convertFileSrc(item.new_path)
+      }
+    }).filter((i) => i && i.mismatch)
+  }
+
+  async function acceptReplacement(entry) {
+    try {
+      await acceptRedownload(entry.original_path, entry.new_path)
+      reviewQueue = reviewQueue.filter((r) => r !== entry)
+      scanMessage = 'Remplacé par la version SoundCloud.'
+    } catch (err) {
+      console.error(err)
+      scanMessage = err?.message || 'Impossible de remplacer le fichier'
+    }
+  }
+
+  async function ignoreReplacement(entry) {
+    try {
+      await discardFile(entry.new_path)
+    } catch (err) {
+      console.warn('discard failed', err)
+    }
+    reviewQueue = reviewQueue.filter((r) => r !== entry)
+  }
+
+  onDestroy(stopProgressListener)
 </script>
 
 <section class="panel">
-  <div class="fields">
-    <label>
-      <span>Dossier à analyser</span>
-      <input
-        type="text"
-        placeholder="/chemin/vers/ta/musique"
-        bind:value={scanFolder}
-      />
-    </label>
-    <div class="actions" style="gap: 8px;">
-      <button class="btn ghost" on:click={pickFolder}>Parcourir</button>
-      <button class="btn primary" disabled={scanning} on:click={runScan}>
-        {scanning ? 'Scan…' : 'Lancer le scan'}
+  <ScanControls
+    bind:folder={scanFolder}
+    message={scanMessage}
+    scanning={scanning}
+    progress={progress}
+    progressLabel={progressLabel}
+    on:pick={pickFolder}
+    on:scan={runScan}
+  />
+
+  {#if scanResults.length}
+    <ScanSummary
+      results={scanResults}
+      active={filter}
+      on:filter={(e) => (filter = e.detail)}
+    />
+    <div class="actions" style="justify-content:flex-start; margin-bottom: 10px; gap:8px;">
+      <button class="btn primary" disabled={retrying} on:click={redownloadLow}>
+        {retrying ? 'Recherche SC…' : 'Retélécharger les LOW via SoundCloud'}
       </button>
     </div>
-  </div>
-  {#if scanMessage}
-    <p class="hint">{scanMessage}</p>
-  {/if}
-  {#if scanning}
-    <div class="progress-bar">
-      <div class="fill" style={`width:${progress}%`}></div>
-    </div>
-  {/if}
-  {#if scanResults.length}
-    <div class="scan-summary">
-      <span class="pill ghost">Total {scanResults.length}</span>
-      <span class="pill warn">Low {scanResults.filter(r => r.status === 'bad').length}</span>
-      <span class="pill">OK {scanResults.filter(r => r.status === 'ok').length}</span>
-      <span class="pill">Err {scanResults.filter(r => r.status === 'error').length}</span>
-    </div>
+
+    {#if reviewQueue.length}
+      <div class="panel review-block">
+        <div class="panel-head" style="margin-bottom:6px;">
+          <h2>Vérifier les durées</h2>
+          <span class="badge">{reviewQueue.length}</span>
+        </div>
+        <div class="review-list">
+          {#each reviewQueue as item}
+            <div class="review-card">
+              <div class="review-meta">
+                <div>Durée originale : {item.original_duration ? item.original_duration.toFixed(1) + 's' : 'n/a'}</div>
+                <div>Nouvelle : {item.new_duration ? item.new_duration.toFixed(1) + 's' : 'n/a'}</div>
+                {#if item.mismatch}
+                  <div class="warn">Durées différentes</div>
+                {/if}
+              </div>
+              <div class="players">
+                <div>
+                  <p class="muted">Ancienne</p>
+                  <audio controls src={item.origUrl}></audio>
+                </div>
+                <div>
+                  <p class="muted">Nouvelle (SoundCloud)</p>
+                  <audio controls src={item.newUrl}></audio>
+                </div>
+              </div>
+              <div class="actions" style="gap:10px;">
+                <button class="btn primary" on:click={() => acceptReplacement(item)}>Accepter</button>
+                <button class="btn ghost" on:click={() => ignoreReplacement(item)}>Ignorer</button>
+              </div>
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/if}
+
     <div class="scan-table">
       <div class="scan-row head">
         <div>Statut</div>
@@ -142,31 +290,14 @@
         <div>Chemin</div>
         <div>Actions</div>
       </div>
-      {#each scanResults as item}
-        <div class={`scan-row ${item.status}`}>
-          <div class="status-dot">
-            {#if item.status === 'bad'}⚠️{:else if item.status === 'ok'}✅{:else}⚙️{/if}
-          </div>
-          <div class="bitrate">{item.bitrate ? `${item.bitrate} kbps` : 'n/a'}</div>
-          <div class="bitrate">{item.is_lossless === true ? 'Yes' : item.is_lossless === false ? 'No' : 'n/a'}</div>
-          <div class="name">{item.name}</div>
-          <div class="path" title={item.path}>{item.path}</div>
-          <div class="actions actions-inline">
-            <button class="btn mini ghost" on:click={() => reveal(item.path)}>Voir</button>
-            <button class="btn mini" on:click={() => spectrum(item.path)}>Spectre</button>
-          </div>
-          {#if spectroLoading[item.path] || spectra[item.path]}
-            <div class="spectrum" style="grid-column: 1 / -1;">
-              {#if spectroLoading[item.path]}
-                <div class="skeleton"></div>
-              {:else if spectra[item.path] === 'error'}
-                <div class="skeleton error">Spectre indisponible</div>
-              {:else if spectra[item.path]}
-                <img src={spectra[item.path]} alt={`Spectrogramme ${item.name}`} loading="lazy" />
-              {/if}
-            </div>
-          {/if}
-        </div>
+      {#each filteredResults as item}
+        <ScanRow
+          {item}
+          spectrumUrl={spectra[item.path]}
+          loading={!!spectroLoading[item.path]}
+          on:reveal={(e) => reveal(e.detail)}
+          on:spectrum={(e) => spectrum(e.detail)}
+        />
       {/each}
     </div>
   {/if}

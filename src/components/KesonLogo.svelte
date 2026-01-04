@@ -58,7 +58,7 @@
       model.position.sub(center)
       model.position.y += 0.05
       model.scale.setScalar(0.7)
-      camera.lookAt(0, 0, 0) // keep your manual camera position
+      fitCameraToSphere(camera, box.getBoundingSphere(new THREE.Sphere()))
       scene.add(model)
     })
 
@@ -108,8 +108,14 @@
   }
 
   function fitCameraToSphere(cam, sphere) {
-    // no-op: manual camera positioning is used
-    const _ = sphere
+    const radius = Math.max(1e-4, sphere.radius)
+    const dist = radius / Math.sin((cam.fov * Math.PI) / 360)
+    const margin = 1.0
+    cam.position.set(110, 0, dist * margin)
+    cam.near = Math.max(0.01, radius * 0.02)
+    cam.far = Math.max(cam.near * 50, dist * 4)
+    cam.lookAt(0, 0, 0)
+    cam.updateProjectionMatrix()
   }
 </script>
 
