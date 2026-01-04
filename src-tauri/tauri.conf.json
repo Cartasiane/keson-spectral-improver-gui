@@ -11,6 +11,14 @@
     "distDir": "../dist"
   },
   "tauri": {
+    "updater": {
+      "active": true,
+      "dialog": false,
+      "pubkey": "REPLACE_WITH_YOUR_PUBLIC_KEY",
+      "endpoints": [
+        "https://github.com/Cartasiane/keson-spectral-improver-gui/releases/latest/download/latest.json"
+      ]
+    },
     "bundle": {
       "active": true,
       "targets": "all",
