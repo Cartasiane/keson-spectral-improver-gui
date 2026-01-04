@@ -1,67 +1,69 @@
 <script>
-  import { onMount } from 'svelte'
-  import { invoke } from '@tauri-apps/api/core'
+  import { onMount } from "svelte";
+  import { invoke } from "@tauri-apps/api/core";
+  import { isDesktop } from "../services/settingsService";
 
-  let url = ''
-  let outputDir = ''
-  let downloads = []
-  let queue = { active: 0, pending: 0 }
-  let message = ''
-  let busy = false
-  let isMock = true
+  let url = "";
+  let outputDir = "";
+  let downloads = [];
+  let queue = { active: 0, pending: 0 };
+  let message = "";
+  let busy = false;
 
   onMount(() => {
-    isMock = typeof window !== 'undefined' && !window.__TAURI__
-    refreshQueue()
-  })
+    refreshQueue();
+  });
 
   async function handleDownload() {
-    if (!url.trim()) return
-    busy = true
-    message = 'Préparation…'
-    const payload = { url, outputDir }
+    if (!url.trim()) return;
+    busy = true;
+    message = "Préparation…";
+    const payload = { url, outputDir };
     try {
-      let result
-      if (isMock) {
-        result = await mockDownload(payload)
+      let result;
+      if (!isDesktop) {
+        result = await mockDownload(payload);
       } else {
-        result = await invoke('download_link', payload)
+        result = await invoke("download_link", payload);
       }
-      downloads = [result, ...downloads].slice(0, 12)
-      message = result.warning || 'Téléchargé'
+      downloads = [result, ...downloads].slice(0, 12);
+      message = result.warning || "Téléchargé";
     } catch (error) {
-      console.error(error)
-      message = error?.message || 'Erreur lors du DL'
+      console.error(error);
+      message = error?.message || "Erreur lors du DL";
     } finally {
-      busy = false
+      busy = false;
     }
   }
 
   async function refreshQueue() {
     try {
-      let stats
-      if (isMock) {
-        stats = { active: downloads.length ? 1 : 0, pending: Math.max(downloads.length - 1, 0) }
+      let stats;
+      if (!isDesktop) {
+        stats = {
+          active: downloads.length ? 1 : 0,
+          pending: Math.max(downloads.length - 1, 0),
+        };
       } else {
-        stats = await invoke('queue_stats')
+        stats = await invoke("queue_stats");
       }
-      queue = stats || { active: 0, pending: 0 }
+      queue = stats || { active: 0, pending: 0 };
     } catch (error) {
-      console.warn('Queue stats failed', error)
+      console.warn("Queue stats failed", error);
     }
-    setTimeout(refreshQueue, 2000)
+    setTimeout(refreshQueue, 2000);
   }
 
   async function mockDownload(payload) {
-    await new Promise(r => setTimeout(r, 800))
+    await new Promise((r) => setTimeout(r, 800));
     return {
-      title: 'Mock track',
+      title: "Mock track",
       caption: payload.url,
-      size: '5.2 MB',
-      quality: 'Authentique',
-      warning: '',
-      savedTo: outputDir || '~/Music/Keson'
-    }
+      size: "5.2 MB",
+      quality: "Authentique",
+      warning: "",
+      savedTo: outputDir || "~/Music/Keson",
+    };
   }
 </script>
 
@@ -73,20 +75,16 @@
         type="text"
         placeholder="SoundCloud, Spotify, Apple Music…"
         bind:value={url}
-        on:keydown={(e) => e.key === 'Enter' && handleDownload()}
+        on:keydown={(e) => e.key === "Enter" && handleDownload()}
       />
     </label>
     <label>
       <span>Dossier de sortie (optionnel)</span>
-      <input
-        type="text"
-        placeholder="~/Music/Keson"
-        bind:value={outputDir}
-      />
+      <input type="text" placeholder="~/Music/Keson" bind:value={outputDir} />
     </label>
     <div class="actions">
       <button class="btn primary" disabled={busy} on:click={handleDownload}>
-        {busy ? '…' : 'Download'}
+        {busy ? "…" : "Download"}
       </button>
     </div>
   </div>
@@ -112,9 +110,10 @@
         <article class="card">
           <div class="card-top">
             <span class="pill">#{downloads.length - idx}</span>
-            {#if item.quality}<span class="pill ghost">{item.quality}</span>{/if}
+            {#if item.quality}<span class="pill ghost">{item.quality}</span
+              >{/if}
           </div>
-          <h3>{item.title || 'Track'}</h3>
+          <h3>{item.title || "Track"}</h3>
           <p class="muted">{item.caption}</p>
           {#if item.warning}
             <p class="warn">{item.warning}</p>

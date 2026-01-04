@@ -11,7 +11,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -20,8 +19,6 @@ use tauri::path::BaseDirectory;
 use tauri::{async_runtime, Emitter};
 use tauri::Manager;
 use walkdir::WalkDir;
-use reqwest::header::{AUTHORIZATION, HeaderValue};
-use base64::{Engine as _, engine::general_purpose};
 
 #[derive(Serialize)]
 struct QueueStats {
@@ -70,8 +67,11 @@ struct Settings {
     rayon_threads: usize, // 0 = default logical cores
     cache_enabled: bool,
     cache_max_entries: usize,
+    #[serde(default)]
     core_api_url: Option<String>,
+    #[serde(default)]
     core_api_user: Option<String>,
+    #[serde(default)]
     core_api_password: Option<String>,
 }
 
@@ -107,13 +107,17 @@ fn download_link(
     let out_dir = output_dir.unwrap_or_else(|| String::from("./"));
     let settings = load_settings_path(&app);
 
+    eprintln!("[GUI] Download request: url={}, dir={}", url, out_dir);
+
     // If API URL is configured, use the remote API
     if let Some(api_url) = &settings.core_api_url {
         if !api_url.trim().is_empty() {
+            eprintln!("[GUI] Using Remote API: {}", api_url);
             return download_via_api(&url, &out_dir, &settings);
         }
     }
 
+    eprintln!("[GUI] Using Local Execution");
     // Fallback to local execution (embedded Node script)
 
     // Let's implement local execution using the new musicdl wrapper in keson-core first.
@@ -158,6 +162,9 @@ fn download_link(
         .current_dir("../")
         .output()
         .map_err(|e| format!("Node exec failed: {e}"))?;
+
+    eprintln!("[GUI] Node stdout: {}", String::from_utf8_lossy(&output.stdout));
+    eprintln!("[GUI] Node stderr: {}", String::from_utf8_lossy(&output.stderr));
 
     if !output.status.success() {
         return Err(format!(

@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=VT323&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=VT323&display=swap");
 
 :root {
   --bg: #000000;
@@ -27,7 +27,7 @@ html {
 
 body {
   margin: 0;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
   background: var(--bg);
   color: var(--text);
   position: relative;
@@ -68,7 +68,8 @@ body {
   grid-template-columns: 1fr auto;
   column-gap: 18px;
   align-items: start;
-  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.6), 0 12px 28px rgba(0,0,0,0.45);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.6),
+    0 12px 28px rgba(0, 0, 0, 0.45);
 }
 
 .eyebrow {
@@ -84,7 +85,7 @@ body {
   font-size: 28px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  font-family: 'VT323', 'Inter', monospace;
+  font-family: "VT323", "Inter", monospace;
 }
 
 .sub {
@@ -109,7 +110,7 @@ body {
   background: transparent;
   border: none;
   color: var(--text);
-  font-family: 'VT323', 'Inter', monospace;
+  font-family: "VT323", "Inter", monospace;
   letter-spacing: 0.12em;
   font-size: 14px;
   cursor: pointer;
@@ -154,7 +155,7 @@ body {
   cursor: pointer;
   transition: transform 0.08s ease, box-shadow 0.12s ease;
   box-shadow: 0 0 12px rgba(57, 255, 20, 0.35);
-  font-family: 'VT323', 'Inter', monospace;
+  font-family: "VT323", "Inter", monospace;
   letter-spacing: 0.08em;
 }
 .icon-btn:hover {
@@ -181,6 +182,9 @@ body {
   border: 1px solid rgba(254, 20, 174, 0.65);
   padding: 16px;
   min-width: 340px;
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow-y: auto;
   z-index: 51;
 }
 
@@ -210,7 +214,7 @@ body {
   border: 1px solid rgba(254, 20, 174, 0.55);
   background: var(--panel);
   color: var(--text);
-  box-shadow: inset 0 0 0 1px rgba(57,255,20,0.2);
+  box-shadow: inset 0 0 0 1px rgba(57, 255, 20, 0.2);
 }
 
 .settings-grid label.row {
@@ -224,7 +228,7 @@ body {
   border: 1px solid var(--accent);
   padding: 16px;
   margin-top: 16px;
-  box-shadow: 0 14px 38px rgba(0,0,0,0.6), 0 0 0 1px rgba(57,255,20,0.14);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(57, 255, 20, 0.14);
 }
 
 .fields {
@@ -248,7 +252,7 @@ body {
   background: var(--panel-2);
   color: var(--text);
   outline: none;
-  box-shadow: inset 0 0 0 1px rgba(57,255,20,0.25);
+  box-shadow: inset 0 0 0 1px rgba(57, 255, 20, 0.25);
 }
 
 .fields input:focus {
@@ -324,7 +328,7 @@ body {
   font-size: 18px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  font-family: 'VT323', 'Inter', monospace;
+  font-family: "VT323", "Inter", monospace;
 }
 
 .badge {
@@ -415,8 +419,6 @@ body {
   border: 1px solid rgba(255, 99, 71, 0.5);
 }
 
-
-
 .card h3 {
   margin: 0;
   font-size: 16px;
@@ -457,8 +459,6 @@ body {
   background: #000;
   color: var(--text);
   border: 1px solid rgba(254, 20, 174, 0.8);
-
-  
 }
 
 .scan-summary {
