@@ -28,12 +28,12 @@
 />
 <div class="modal">
   <div class="modal-head">
-    <h3>Paramètres</h3>
+    <h3>Paramètres API</h3>
     <button class="icon-btn" on:click={() => dispatch("close")}>[X]</button>
   </div>
   <div class="settings-grid">
     <label>
-      <span>Seuil bas (kbps)</span>
+      <span>Seuil bas (kbpss)</span>
       <small class="muted"
         >Sous ce débit, le fichier est signalé comme low.</small
       >

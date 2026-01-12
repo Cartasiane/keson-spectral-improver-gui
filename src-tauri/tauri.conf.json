@@ -3,9 +3,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "resources": [
-      "../vendor/whatsmybitrate"
-    ],
+    "resources": ["../vendor/whatsmybitrate"],
     "macOS": {
       "minimumSystemVersion": "10.13"
     },
@@ -33,12 +31,8 @@
   "app": {
     "security": {
       "assetProtocol": {
-        "scope": [
-          "$APP/**",
-          "$RESOURCE/**",
-          "$TEMP/**",
-          "$HOME/**"
-        ]
+        "enable": true,
+        "scope": ["$APP/**", "$RESOURCE/**", "$TEMP/**", "$HOME/**"]
       }
     },
     "windows": [
@@ -46,7 +40,10 @@
         "title": "Keson Spectral Improver",
         "width": 1100,
         "height": 780,
-        "useHttpsScheme": true
+        "useHttpsScheme": false,
+        "devtools": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
       }
     ]
   }

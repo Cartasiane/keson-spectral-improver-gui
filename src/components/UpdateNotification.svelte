@@ -1,17 +1,18 @@
 <script>
-  import { createEventDispatcher } from 'svelte'
-  
-  export let version = ''
-  export let notes = ''
-  export let downloading = false
-  export let progress = 0
-  
-  const dispatch = createEventDispatcher()
+  import { createEventDispatcher } from "svelte";
+  import { Rocket } from "lucide-svelte";
+
+  export let version = "";
+  export let notes = "";
+  export let downloading = false;
+  export let progress = 0;
+
+  const dispatch = createEventDispatcher();
 </script>
 
 <div class="update-banner">
   <div class="update-content">
-    <div class="update-icon">🚀</div>
+    <div class="update-icon"><Rocket size={24} /></div>
     <div class="update-info">
       <strong>Mise à jour disponible</strong>
       {#if version}
@@ -22,7 +23,7 @@
       {/if}
     </div>
   </div>
-  
+
   <div class="update-actions">
     {#if downloading}
       <div class="progress-container">
@@ -30,10 +31,10 @@
         <span class="progress-text">{progress}%</span>
       </div>
     {:else}
-      <button class="btn-update" on:click={() => dispatch('install')}>
+      <button class="btn-update" on:click={() => dispatch("install")}>
         Installer
       </button>
-      <button class="btn-dismiss" on:click={() => dispatch('dismiss')}>
+      <button class="btn-dismiss" on:click={() => dispatch("dismiss")}>
         Plus tard
       </button>
     {/if}
@@ -56,7 +57,7 @@
     box-shadow: 0 4px 20px rgba(0, 255, 136, 0.2);
     animation: slideDown 0.3s ease-out;
   }
-  
+
   @keyframes slideDown {
     from {
       transform: translateY(-100%);
@@ -67,26 +68,26 @@
       opacity: 1;
     }
   }
-  
+
   .update-content {
     display: flex;
     align-items: center;
     gap: 12px;
   }
-  
+
   .update-icon {
     font-size: 24px;
   }
-  
+
   .update-info {
     color: #fff;
   }
-  
+
   .update-info strong {
     font-size: 14px;
     color: #00ff88;
   }
-  
+
   .version {
     margin-left: 8px;
     font-size: 12px;
@@ -95,7 +96,7 @@
     border-radius: 4px;
     color: #00ff88;
   }
-  
+
   .notes {
     margin: 4px 0 0 0;
     font-size: 12px;
@@ -105,13 +106,13 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  
+
   .update-actions {
     display: flex;
     gap: 8px;
     align-items: center;
   }
-  
+
   .btn-update {
     background: #00ff88;
     color: #000;
@@ -122,12 +123,12 @@
     cursor: pointer;
     transition: all 0.2s;
   }
-  
+
   .btn-update:hover {
     background: #00cc6a;
     transform: scale(1.02);
   }
-  
+
   .btn-dismiss {
     background: transparent;
     color: #888;
@@ -137,12 +138,12 @@
     cursor: pointer;
     transition: all 0.2s;
   }
-  
+
   .btn-dismiss:hover {
     border-color: #666;
     color: #fff;
   }
-  
+
   .progress-container {
     width: 150px;
     height: 24px;
@@ -151,13 +152,13 @@
     position: relative;
     overflow: hidden;
   }
-  
+
   .progress-bar {
     height: 100%;
     background: linear-gradient(90deg, #00ff88, #00cc6a);
     transition: width 0.3s ease;
   }
-  
+
   .progress-text {
     position: absolute;
     top: 50%;

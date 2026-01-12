@@ -2,7 +2,7 @@ import { invoke, convertFileSrc } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { open } from '@tauri-apps/plugin-dialog'
 
-export const isDesktop = typeof window !== 'undefined' && !!window.__TAURI__
+export const isDesktop = typeof window !== 'undefined' && (!!window.__TAURI__ || !!window.__TAURI_INTERNALS__)
 
 export async function pickFolderDialog() {
   if (!isDesktop) return null
@@ -22,13 +22,27 @@ export async function revealInFolder(path) {
 
 export async function openSpectrum(path) {
   if (!isDesktop) throw new Error('Spectre disponible seulement en mode desktop')
-  const imgPath = await invoke('open_spectrum', { path })
-  return convertFileSrc(imgPath)
+  const bytes = await invoke('open_spectrum', { path })
+  const blob = new Blob([new Uint8Array(bytes)], { type: 'image/png' })
+  return URL.createObjectURL(blob)
 }
 
-export async function redownloadBad(paths) {
+export async function redownloadBad(paths, options = {}) {
   if (!isDesktop) throw new Error('Disponible seulement en desktop')
-  return invoke('redownload_bad', { paths })
+  return invoke('redownload_bad', { 
+    paths, 
+    source: options.source || 'auto',
+    backup: options.backup ?? true
+  })
+}
+
+export async function downloadWithUrl(originalPath, url, backup = true) {
+  if (!isDesktop) throw new Error('Disponible seulement en desktop')
+  return invoke('download_with_url', { 
+    originalPath, 
+    url,
+    backup
+  })
 }
 
 export async function acceptRedownload(original, fresh) {
@@ -41,10 +55,20 @@ export async function discardFile(path) {
   return invoke('discard_file', { path })
 }
 
+export async function revertReplacement(originalPath) {
+  if (!isDesktop) return false
+  return invoke('revert_replacement', { originalPath })
+}
+
 export async function listenScanProgress(callback) {
   if (!isDesktop) return null
   const unlisten = await listen('scan_progress', (event) => {
     callback(event?.payload)
   })
   return unlisten
+}
+
+export async function extractCover(audioPath) {
+  if (!isDesktop) return null
+  return invoke('extract_cover', { audioPath })
 }

@@ -19,7 +19,7 @@
     rayon_threads: 0,
     cache_enabled: true,
     cache_max_entries: 10000,
-    core_api_url: "",
+    core_api_url: "http://localhost:3001",
     core_api_user: "",
     core_api_password: "",
   };
@@ -129,10 +129,10 @@
 {/if}
 
 <main class="app">
-  <header class="hero">
+  <header class="hero" data-tauri-drag-region>
     <div>
       <p class="eyebrow">Keson</p>
-      <h1>Spectral Improver</h1>
+      <h1>Spectral Improver [DEV MODE]</h1>
       <p class="sub">Awaken ton KESON avec des fichiers large SPECTRE</p>
     </div>
     <div class="hero-right">
@@ -169,11 +169,12 @@
     </button>
   </div>
 
-  {#if activeTab === "download"}
+  <div style="display: {activeTab === 'download' ? 'block' : 'none'}">
     <DownloadTab />
-  {:else}
+  </div>
+  <div style="display: {activeTab === 'quality' ? 'block' : 'none'}">
     <QualityTab />
-  {/if}
+  </div>
 
   {#if showSettings}
     <SettingsModal

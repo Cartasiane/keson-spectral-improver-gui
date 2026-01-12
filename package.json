@@ -7,8 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "tauri": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri": "tauri",
+    "auth-tidal": "cd ../keson-spectral-improver-core && npm run auth-tidal",
+    "tauri:build": "tauri build --features custom-protocol"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.9.1",
@@ -23,6 +24,7 @@
     "@tauri-apps/plugin-shell": "^2.3.3",
     "@tauri-apps/plugin-updater": "^2.9.0",
     "keson-spectral-improver-core": "^0.1.0",
+    "lucide-svelte": "^0.562.0",
     "svelte": "^4.2.2",
     "system.css": "^0.5.3",
     "three": "^0.179.1"
