@@ -48,10 +48,15 @@
     refreshQueue();
   });
 
+  let lastUrl = ""; // Store last URL for retry
+  let isQueueFull = false; // Track if last error was queue full
+
   async function handleDownload() {
     if (!url.trim()) return;
     busy = true;
+    isQueueFull = false;
     message = "Préparation…";
+    lastUrl = url;
     const payload = { url, outputDir };
     try {
       let result;
@@ -65,9 +70,23 @@
     } catch (error) {
       console.error(error);
       const errMsg = typeof error === "string" ? error : error?.message;
-      message = errMsg || "Erreur lors du DL";
+
+      // Check for QUEUE_FULL
+      if (errMsg && errMsg.startsWith("QUEUE_FULL:")) {
+        isQueueFull = true;
+        message = "Serveur saturé — réessayez dans quelques secondes";
+      } else {
+        message = errMsg || "Erreur lors du DL";
+      }
     } finally {
       busy = false;
+    }
+  }
+
+  async function retryDownload() {
+    if (lastUrl) {
+      url = lastUrl;
+      await handleDownload();
     }
   }
 </script>
@@ -92,7 +111,12 @@
     </button>
   </div>
   {#if message}
-    <p class="hint">{message}</p>
+    <p class="hint" class:warn={isQueueFull}>{message}</p>
+    {#if isQueueFull}
+      <button class="btn retry" on:click={retryDownload} disabled={busy}>
+        🔄 Réessayer
+      </button>
+    {/if}
   {/if}
 </section>
 
@@ -244,5 +268,14 @@
   .warn {
     color: #ffaa00;
     font-size: 0.9rem;
+  }
+  .btn.retry {
+    background: linear-gradient(135deg, #ff9800, #f57c00);
+    color: #000;
+    font-weight: 600;
+    margin-top: 0.5rem;
+  }
+  .btn.retry:hover {
+    background: linear-gradient(135deg, #ffb74d, #ff9800);
   }
 </style>

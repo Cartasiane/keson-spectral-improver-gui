@@ -19,6 +19,7 @@
   const dispatch = createEventDispatcher();
 
   function getStatusIcon(status) {
+    if (status?.startsWith("retry-")) return RefreshCw;
     switch (status) {
       case "pending":
         return Clock;
@@ -27,6 +28,7 @@
       case "done":
         return Check;
       case "error":
+      case "queue-full":
         return X;
       case "no-match":
         return Link;
@@ -34,12 +36,22 @@
         return null;
     }
   }
+
+  function getStatusClass(status) {
+    if (status?.startsWith("retry-")) return "retry";
+    if (status === "queue-full") return "queue-full";
+    return status;
+  }
 </script>
 
 <div class={`scan-row ${item.status}`}>
   <div class="status-dot">
     {#if downloadStatus}
-      <span class="dl-status" class:spin={downloadStatus === "downloading"}>
+      <span
+        class="dl-status"
+        class:spin={downloadStatus === "downloading" ||
+          downloadStatus?.startsWith("retry-")}
+      >
         <svelte:component this={getStatusIcon(downloadStatus)} size={16} />
       </span>
     {:else if item.status === "bad"}

@@ -279,7 +279,46 @@
           }
         } catch (err) {
           console.error(`Failed: ${filePath}`, err);
-          downloadStatus = { ...downloadStatus, [filePath]: "error" };
+          const errMsg = typeof err === "string" ? err : err?.message || "";
+
+          // Check for QUEUE_FULL - retry with exponential backoff
+          if (errMsg.startsWith("QUEUE_FULL:")) {
+            let retrySuccess = false;
+            for (let attempt = 1; attempt <= 2; attempt++) {
+              const delay = attempt * 2000; // 2s, 4s
+              downloadStatus = {
+                ...downloadStatus,
+                [filePath]: `retry-${attempt}`,
+              };
+              await new Promise((r) => setTimeout(r, delay));
+
+              try {
+                const saved = await redownloadBad([filePath], {
+                  source,
+                  backup,
+                });
+                if (saved.length > 0) {
+                  results.push(...saved);
+                  downloadStatus = { ...downloadStatus, [filePath]: "done" };
+                  retrySuccess = true;
+                  break;
+                }
+              } catch (retryErr) {
+                const retryMsg =
+                  typeof retryErr === "string"
+                    ? retryErr
+                    : retryErr?.message || "";
+                if (!retryMsg.startsWith("QUEUE_FULL:")) {
+                  break; // Different error, stop retrying
+                }
+              }
+            }
+            if (!retrySuccess) {
+              downloadStatus = { ...downloadStatus, [filePath]: "queue-full" };
+            }
+          } else {
+            downloadStatus = { ...downloadStatus, [filePath]: "error" };
+          }
         }
       }
 

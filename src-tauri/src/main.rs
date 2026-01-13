@@ -362,6 +362,16 @@ fn download_via_api(
     if !res.status().is_success() {
         let status = res.status();
         let text = res.text().unwrap_or_default();
+        
+        // Check for QUEUE_FULL (503 Service Unavailable)
+        if status == reqwest::StatusCode::SERVICE_UNAVAILABLE {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                if json.get("code").and_then(|c| c.as_str()) == Some("QUEUE_FULL") {
+                    return Err("QUEUE_FULL: Le serveur est saturé, réessayez dans un instant.".to_string());
+                }
+            }
+        }
+        
         return Err(format!("API Error ({}): {}", status, text));
     }
 
