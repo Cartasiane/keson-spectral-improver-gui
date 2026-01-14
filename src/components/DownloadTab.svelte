@@ -2,7 +2,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { downloadDir } from "@tauri-apps/api/path";
   import { onMount } from "svelte";
-  import { isDesktop } from "../services/settingsService";
+  import { isDesktop } from "../services/scanService";
   import { Music, Clock, Folder } from "lucide-svelte";
 
   let url = "";

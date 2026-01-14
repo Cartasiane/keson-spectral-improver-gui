@@ -1,169 +1,28 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use hex;
+mod audio;
+mod cache;
+mod settings;
+mod types;
+
 use num_cpus;
 use rayon::iter::IntoParallelRefIterator;
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
-use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::path::BaseDirectory;
-use tauri::{async_runtime, Emitter};
-use tauri::Manager;
+use tauri::{async_runtime, Emitter, Manager};
 use walkdir::WalkDir;
 
-#[derive(Serialize)]
-struct QueueStats {
-    active: u32,
-    pending: u32,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-struct DownloadResult {
-    title: String,
-    artist: Option<String>,
-    album: Option<String>,
-    duration: Option<f64>,
-    bitrate: Option<u32>,
-    source: Option<String>,
-    cover_url: Option<String>,
-    caption: String,
-    quality: String,
-    warning: String,
-    saved_to: String,
-}
-
-#[derive(Serialize)]
-struct RedownloadResult {
-    original_path: String,
-    new_path: String,
-    original_duration: Option<f64>,
-    new_duration: Option<f64>,
-    cover_url: Option<String>,
-    new_bitrate: Option<u32>,
-}
-
-#[derive(Serialize)]
-struct ScanResult {
-    path: String,
-    name: String,
-    bitrate: Option<u32>,
-    is_lossless: Option<bool>,
-    note: Option<String>,
-    status: String, // "ok" | "bad" | "error"
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-struct CacheEntry {
-    bitrate: Option<u32>,
-    is_lossless: Option<bool>,
-    note: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-struct Settings {
-    min_bitrate: u32,
-    analysis_window_seconds: u32,
-    rayon_threads: usize, // 0 = default logical cores
-    cache_enabled: bool,
-    cache_max_entries: usize,
-    #[serde(default)]
-    core_api_url: Option<String>,
-    #[serde(default)]
-    core_api_user: Option<String>,
-    #[serde(default)]
-    core_api_password: Option<String>,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Settings {
-            min_bitrate: 256,
-            analysis_window_seconds: 100,
-            rayon_threads: 0,
-            cache_enabled: true,
-            cache_max_entries: 10_000,
-            core_api_url: Some("http://localhost:3001".to_string()),
-            core_api_user: None,
-            core_api_password: None,
-        }
-    }
-}
-
-/// Metadata extracted from an audio file using ffprobe
-/// Used to send to Core server for track matching instead of file paths
-#[derive(Serialize, Clone, Debug, Default)]
-struct ExtractedMetadata {
-    artist: Option<String>,
-    title: Option<String>,
-    album: Option<String>,
-    duration: Option<f64>,
-    isrc: Option<String>,
-}
-
-/// Extract metadata from an audio file using ffprobe
-/// Returns artist, title, album, duration, and ISRC if available
-fn extract_metadata_from_file(path: &Path) -> ExtractedMetadata {
-    let output = Command::new("ffprobe")
-        .args([
-            "-v", "quiet",
-            "-print_format", "json",
-            "-show_format",
-            path.to_str().unwrap_or_default(),
-        ])
-        .output();
-
-    let mut metadata = ExtractedMetadata::default();
-
-    if let Ok(output) = output {
-        if output.status.success() {
-            if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
-                let format = &json["format"];
-                let tags = &format["tags"];
-                
-                // Extract duration
-                if let Some(dur_str) = format["duration"].as_str() {
-                    metadata.duration = dur_str.parse().ok();
-                }
-                
-                // Try various tag formats (case-insensitive matching would need more work)
-                // ffprobe may return tags in various cases depending on the file format
-                metadata.artist = tags["artist"].as_str()
-                    .or_else(|| tags["ARTIST"].as_str())
-                    .or_else(|| tags["albumartist"].as_str())
-                    .or_else(|| tags["ALBUMARTIST"].as_str())
-                    .map(|s| s.to_string());
-                
-                metadata.title = tags["title"].as_str()
-                    .or_else(|| tags["TITLE"].as_str())
-                    .map(|s| s.to_string());
-                
-                metadata.album = tags["album"].as_str()
-                    .or_else(|| tags["ALBUM"].as_str())
-                    .map(|s| s.to_string());
-                
-                // ISRC (International Standard Recording Code)
-                metadata.isrc = tags["isrc"].as_str()
-                    .or_else(|| tags["ISRC"].as_str())
-                    .or_else(|| tags["TSRC"].as_str()) // ID3v2 tag
-                    .map(|s| s.to_string());
-                
-                println!("[GUI] Extracted metadata: artist={:?}, title={:?}, duration={:?}, isrc={:?}", 
-                    metadata.artist, metadata.title, metadata.duration, metadata.isrc);
-            }
-        }
-    }
-
-    metadata
-}
+use audio::{analyze_with_wmb_single, extract_metadata_from_file, is_audio, probe_bitrate, probe_duration};
+use cache::{cache_path, load_cache, save_cache};
+pub use settings::{get_settings, load_settings, save_settings};
+use types::{CacheEntry, DownloadResult, QueueStats, RedownloadResult, ScanResult};
 
 #[tauri::command]
 fn queue_stats() -> QueueStats {
@@ -179,21 +38,16 @@ async fn download_link(
     output_dir: Option<String>,
     app: tauri::AppHandle,
 ) -> Result<DownloadResult, String> {
-    use tauri::Manager;
     let out_dir = match output_dir.filter(|s| !s.is_empty()) {
         Some(d) => d,
         None => app.path().download_dir()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| String::from("./")),
     };
-    let settings = load_settings_path(&app);
+    let settings = load_settings(&app);
 
-    // eprintln!("[GUI] Download request: url={}, dir={}", url, out_dir);
-
-    // 1. Perform Download (API or Local)
     let download_task_result = if let Some(api_url) = &settings.core_api_url {
         if !api_url.trim().is_empty() {
-            // eprintln!("[GUI] Using Remote API: {}", api_url);
             let url_clone = url.clone();
             let out_dir_clone = out_dir.clone();
             let settings_clone = settings.clone();
@@ -211,11 +65,9 @@ async fn download_link(
 
     let mut res = download_task_result?;
 
-    // 2. Analyze with WMB (Local Verification)
     let handle = app.clone();
     let settings_analysis = settings.clone();
     
-    // We run analysis in blocking thread
     let analysis_result = async_runtime::spawn_blocking(move || -> Result<DownloadResult, String> {
         let vendor = vendor_dir(&handle).map_err(|e| e.to_string())?;
         let cache_path = cache_path(&handle)?;
@@ -248,7 +100,6 @@ async fn download_link(
                 }
             }
             
-            // Persist cache
             if let Ok(guard) = cache.lock() {
                 let _ = save_cache(&cache_path, &*guard);
             }
@@ -260,7 +111,6 @@ async fn download_link(
 }
 
 fn download_local(url: &str, out_dir: &str) -> Result<DownloadResult, String> {
-    // eprintln!("[GUI] Using Local Execution");
     let script = r#"
       const fs = require('fs');
       const path = require('path');
@@ -299,9 +149,6 @@ fn download_local(url: &str, out_dir: &str) -> Result<DownloadResult, String> {
         .output()
         .map_err(|e| format!("Node exec failed: {e}"))?;
 
-    // eprintln!("[GUI] Node stdout: {}", String::from_utf8_lossy(&output.stdout));
-    // eprintln!("[GUI] Node stderr: {}", String::from_utf8_lossy(&output.stderr));
-
     if !output.status.success() {
         return Err(format!(
             "Téléchargement échoué: {}",
@@ -321,7 +168,7 @@ fn download_local(url: &str, out_dir: &str) -> Result<DownloadResult, String> {
         artist: None,
         album: None,
         duration: None,
-        bitrate: parsed.get("quality").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()), // simple parse attempt
+        bitrate: parsed.get("quality").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()),
         source: None,
         cover_url: None,
         caption: url.to_string(),
@@ -331,13 +178,10 @@ fn download_local(url: &str, out_dir: &str) -> Result<DownloadResult, String> {
     })
 }
 
-// Separate function to keep compatible signature with main.rs flow
-
-
 fn download_via_api(
     url: &str,
     output_dir: &str,
-    settings: &Settings,
+    settings: &settings::Settings,
 ) -> Result<DownloadResult, String> {
     let api_url = settings.core_api_url.as_ref().unwrap().trim_end_matches('/');
     let client = reqwest::blocking::Client::builder()
@@ -345,7 +189,6 @@ fn download_via_api(
         .build()
         .map_err(|e| format!("Client build failed: {e}"))?;
     
-    // prepare auth
     let mut req_builder = client.post(format!("{}/download-any", api_url));
     
     if let (Some(u), Some(p)) = (&settings.core_api_user, &settings.core_api_password) {
@@ -363,7 +206,6 @@ fn download_via_api(
         let status = res.status();
         let text = res.text().unwrap_or_default();
         
-        // Check for QUEUE_FULL (503 Service Unavailable)
         if status == reqwest::StatusCode::SERVICE_UNAVAILABLE {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
                 if json.get("code").and_then(|c| c.as_str()) == Some("QUEUE_FULL") {
@@ -386,14 +228,12 @@ fn download_via_api(
     let filename = body.get("filename").and_then(|s| s.as_str())
         .ok_or("No filename in response")?;
 
-    // Construct full download URL (handling relative paths)
     let full_dl_url = if download_url.starts_with("http") {
         download_url.to_string()
     } else {
         format!("{}{}", api_url, download_url)
     };
 
-    // Download the file
     let mut dl_req = client.get(&full_dl_url);
     if let (Some(u), Some(p)) = (&settings.core_api_user, &settings.core_api_password) {
         if !u.is_empty() {
@@ -411,7 +251,6 @@ fn download_via_api(
     let mut file = fs::File::create(&dest_path).map_err(|e| format!("Create file failed: {e}"))?;
     dl_res.copy_to(&mut file).map_err(|e| format!("Save file failed: {e}"))?;
 
-    // Extract metadata for result
     let metadata = body.get("metadata");
     
     let quality = body.get("quality")
@@ -454,10 +293,6 @@ fn download_via_api(
         .and_then(|m| m.get("thumbnail"))
         .and_then(|s| s.as_str())
         .map(|s| s.to_string());
-    
-    
-    // eprintln!("[GUI] Extracted Metadata - Artist: {:?}, Cover: {:?}", artist, cover_url);
-
 
     Ok(DownloadResult {
         title,
@@ -482,7 +317,7 @@ async fn scan_folder(
 ) -> Result<Vec<ScanResult>, String> {
     let handle = app.clone();
     async_runtime::spawn_blocking(move || {
-        let settings = load_settings_path(&handle);
+        let settings = load_settings(&handle);
         init_rayon_pool_with(settings.rayon_threads);
         let min = min_kbps.unwrap_or(settings.min_bitrate);
         let root = Path::new(&folder);
@@ -493,15 +328,13 @@ async fn scan_folder(
         let mut audio_entries = Vec::new();
         let mut discovered = 0usize;
         let mut tick = 0u32;
-        let _ = handle.emit("scan_progress", 1u32); // start
+        let _ = handle.emit("scan_progress", 1u32);
 
         for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
-            // Skip backup-ksi folder
             if entry.file_type().is_dir() && entry.file_name() == "backup-ksi" {
                 continue;
             }
             if entry.file_type().is_file() {
-                // Skip files inside backup-ksi folders
                 if entry.path().components().any(|c| c.as_os_str() == "backup-ksi") {
                     continue;
                 }
@@ -509,7 +342,7 @@ async fn scan_folder(
                 if is_audio(entry.path()) {
                     audio_entries.push(entry);
                 }
-                let pct = 1 + ((discovered as f64).sqrt() as u32 % 12); // gentle movement up to ~13%
+                let pct = 1 + ((discovered as f64).sqrt() as u32 % 12);
                 if pct != tick {
                     tick = pct;
                     let _ = handle.emit("scan_progress", pct.min(15));
@@ -615,7 +448,6 @@ async fn open_spectrum(path: String, app: tauri::AppHandle) -> Result<Vec<u8>, S
 
     let vendor = vendor_dir(&app)?;
 
-    // Ensure python3 is available
     let python = "python3";
     let py_check = Command::new(python)
         .arg("--version")
@@ -673,30 +505,10 @@ Installe-les : pip install -r vendor/whatsmybitrate/requirements.txt"
                 .into(),
         );
     }
-    // eprintln!("[GUI] Generated spectrum at: {}", spectro);
     
-    // Read the file into bytes to bypass asset protocol/scope issues
     let bytes = std::fs::read(&spectro).map_err(|e| format!("Failed to read generated spectrum: {e}"))?;
     
-    // Optional: cleanup temp file immediately? 
-    // std::fs::remove_file(&spectro).ok(); 
-    // We leave it in cache for now or let OS clean up if it were temp.
-    
     Ok(bytes)
-}
-
-fn is_audio(path: &Path) -> bool {
-    match path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|s| s.to_lowercase())
-    {
-        Some(ext) => matches!(
-            ext.as_str(),
-            "mp3" | "m4a" | "aac" | "wav" | "flac" | "ogg" | "opus" | "webm"
-        ),
-        None => false,
-    }
 }
 
 fn vendor_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -704,177 +516,7 @@ fn vendor_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .path()
         .resolve("../vendor/whatsmybitrate", BaseDirectory::Resource)
         .map_err(|e| e.to_string())?;
-    
-    // We already resolved fully, so these candidates logic might be redundant if resolve works as expected from bundle.
-    // However, if running in dev, resource resolution might differ. 
-    // Let's rely on standard resolution first, or keep fallback if resolve fails? 
-    // resolve_resource in v1 returned Option<PathBuf>. v2 returns Result<PathBuf>.
-    // Let's assume resolve works.
     Ok(base)
-}
-
-fn file_hash(path: &Path) -> io::Result<String> {
-    let mut file = fs::File::open(path)?;
-    let mut hasher = Sha256::new();
-    let mut buf = [0u8; 8192];
-    loop {
-        let n = file.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-    Ok(hex::encode(hasher.finalize()))
-}
-
-fn cache_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let base = app
-        .path()
-        .app_data_dir()
-        .or_else(|_| app.path().app_cache_dir())
-        .map_err(|e| e.to_string())?;
-
-    let path = base.join("analysis-cache.json");
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    Ok(path)
-}
-
-fn load_cache(path: &Path, limit: usize) -> HashMap<String, CacheEntry> {
-    if let Ok(text) = fs::read_to_string(path) {
-        let mut map: HashMap<String, CacheEntry> = serde_json::from_str(&text).unwrap_or_default();
-        enforce_cache_limit(&mut map, limit);
-        map
-    } else {
-        HashMap::new()
-    }
-}
-
-fn save_cache(path: &Path, cache: &HashMap<String, CacheEntry>) -> io::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let tmp = path.with_extension("tmp");
-    fs::write(&tmp, serde_json::to_string(cache).unwrap_or_default())?;
-    fs::rename(tmp, path)?;
-    Ok(())
-}
-
-fn enforce_cache_limit(cache: &mut HashMap<String, CacheEntry>, limit: usize) {
-    if limit == 0 || cache.len() <= limit {
-        return;
-    }
-    while cache.len() > limit {
-        if let Some(key) = cache.keys().next().cloned() {
-            cache.remove(&key);
-        } else {
-            break;
-        }
-    }
-}
-
-fn analyze_with_wmb_single(
-    path: &Path,
-    vendor_dir: &Path,
-    min: u32,
-    analysis_window: u32,
-    cache_enabled: bool,
-    cache: &Arc<Mutex<HashMap<String, CacheEntry>>>,
-) -> Result<(Option<u32>, Option<bool>, Option<String>, String), String> {
-    let hash = if cache_enabled {
-        file_hash(path).ok()
-    } else {
-        None
-    };
-    if cache_enabled {
-        if let Some(h) = &hash {
-            if let Ok(guard) = cache.lock() {
-                if let Some(entry) = guard.get(h) {
-                    let status = match entry.bitrate {
-                        Some(b) if b < min => "bad".to_string(),
-                        Some(_) => "ok".to_string(),
-                        None => "error".to_string(),
-                    };
-                    return Ok((entry.bitrate, entry.is_lossless, entry.note.clone(), status));
-                }
-            }
-        }
-    }
-
-    let python = "python3";
-    let py_check = Command::new(python)
-        .arg("--version")
-        .output()
-        .map_err(|e| format!("python3 introuvable: {e}"))?;
-    if !py_check.status.success() {
-        return Err("python3 introuvable (ajoute-le au PATH)".into());
-    }
-
-    let script = format!(
-        r#"
-import sys, json
-sys.path.insert(0, r"{vendor}")
-from wmb_core import AudioFile
-import wmb_core
-wmb_core.MAX_LOAD_SECONDS = {window}
-af = AudioFile(sys.argv[1])
-af.analyze(generate_spectrogram_flag=False, assets_dir=None)
-print(json.dumps(af.to_dict()))
-"#,
-        vendor = vendor_dir.display(),
-        window = analysis_window
-    );
-
-    let output = Command::new(python)
-        .args(["-c", &script, path.to_str().unwrap_or_default()])
-        .output()
-        .map_err(|e| format!("python3: {e}"))?;
-
-    if !output.status.success() {
-        return Err(format!(
-            "whatsmybitrate a échoué: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-
-    let parsed: serde_json::Value =
-        serde_json::from_slice(&output.stdout).map_err(|e| format!("parse json: {e}"))?;
-    let est = parsed
-        .get("estimated_bitrate_numeric")
-        .and_then(|v| v.as_f64())
-        .map(|v| v.round() as u32);
-    let lossless = parsed.get("is_lossless").and_then(|v| v.as_bool());
-    let err = parsed
-        .get("error")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string());
-
-    let status = match (err.is_some(), est) {
-        (true, _) => "error".to_string(),
-        (false, Some(b)) if b < min => "bad".to_string(),
-        (false, Some(_)) => "ok".to_string(),
-        _ => "error".to_string(),
-    };
-
-    if cache_enabled {
-        if let Some(h) = hash {
-            if let Ok(mut guard) = cache.lock() {
-                guard.insert(
-                    h,
-                    CacheEntry {
-                        bitrate: est,
-                        is_lossless: lossless,
-                        note: err.clone(),
-                    },
-                );
-                enforce_cache_limit(&mut *guard, 10_000);
-            }
-        }
-    }
-
-    Ok((est, lossless, err, status))
 }
 
 fn main() {
@@ -910,7 +552,6 @@ fn main() {
 }
 
 fn init_rayon_pool() {
-    // Allow override via env; else use logical CPUs (safer default)
     let threads = std::env::var("RAYON_NUM_THREADS")
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
@@ -922,7 +563,7 @@ fn init_rayon_pool() {
 
 fn init_rayon_pool_with(threads: usize) {
     if rayon::current_num_threads() > 0 {
-        return; // already set
+        return;
     }
     let count = if threads > 0 {
         threads
@@ -932,44 +573,15 @@ fn init_rayon_pool_with(threads: usize) {
     let _ = ThreadPoolBuilder::new().num_threads(count).build_global();
 }
 
-fn load_settings_path(app: &tauri::AppHandle) -> Settings {
-    let path = settings_path(app);
-    if let Ok(text) = fs::read_to_string(&path) {
-        serde_json::from_str(&text).unwrap_or_default()
-    } else {
-        Settings::default()
-    }
-}
-
-#[tauri::command]
-fn get_settings(app: tauri::AppHandle) -> Settings {
-    load_settings_path(&app)
-}
-
-#[tauri::command]
-fn save_settings(app: tauri::AppHandle, settings: Settings) -> Result<(), String> {
-    let path = settings_path(&app);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    fs::write(
-        &path,
-        serde_json::to_string_pretty(&settings).unwrap_or_default(),
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
 #[tauri::command]
 async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: tauri::AppHandle) -> Result<Vec<RedownloadResult>, String> {
-    let settings = load_settings_path(&app);
+    let settings = load_settings(&app);
     tauri::async_runtime::spawn_blocking(move || {
         let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(300)) // 5 minutes for Tidal downloads
+            .timeout(std::time::Duration::from_secs(300))
             .build()
             .map_err(|e| format!("Client build failed: {e}"))?;
         
-        // Use configured Core API URL from settings
         let api_base = settings.core_api_url
             .as_ref()
             .map(|s| s.trim_end_matches('/').to_string())
@@ -991,20 +603,17 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
 
             println!("[GUI] Redownload Query for: '{}' (source: {}, backup: {})", stem, source, backup);
 
-            // Extract metadata from the local file using ffprobe
             let file_metadata = extract_metadata_from_file(&path);
 
-            // Clean the query by removing bracketed noise patterns like [ ... ] or ( ... )
             let clean_query = stem
                 .split(" - ")
-                .take(2) // Keep only "Artist - Title", drop anything after
+                .take(2)
                 .collect::<Vec<_>>()
                 .join(" - ");
             let clean_query = if clean_query.is_empty() { stem.to_string() } else { clean_query };
             
             println!("[GUI] Search query (cleaned): '{}'", clean_query);
 
-            // 1. Search using POST with extracted metadata (no file path sent to Core)
             let search_payload = serde_json::json!({
                 "query": clean_query,
                 "metadata": {
@@ -1037,14 +646,12 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
                             }
                         } else {
                             println!("[GUI] No confident match found for: {}", stem);
-                            // TODO: Emit event to GUI for manual URL input
                         }
                     }
                 }
                 Err(e) => eprintln!("[GUI] Search request failed: {}", e),
             }
 
-            // Skip if no match found (manual URL input will be handled by GUI)
             let download_url = match download_target {
                 Some(url) => url,
                 None => {
@@ -1053,7 +660,6 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
                 }
             };
 
-            // 2. Request Download
             let payload = serde_json::json!({
                 "url": download_url,
                 "source": source_type
@@ -1071,7 +677,6 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
 
                         if let Ok(json) = resp.json::<serde_json::Value>() {
                             if let Some(rel_url) = json["downloadUrl"].as_str() {
-                                // Update cover_url from metadata if not already set
                                 if cover_url.is_none() {
                                     cover_url = json["metadata"]["thumbnail"]
                                         .as_str()
@@ -1082,7 +687,6 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
                                     }
                                 }
 
-                                // 3. Download File Content from Core
                                 let file_url = format!("{}{}", api_base, rel_url);
                                 let final_filename = json["filename"].as_str().unwrap_or("downloaded.mp3");
                                 let dest_path = parent.join(final_filename);
@@ -1098,7 +702,6 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
                                                  let original_dur = probe_duration(&path);
                                                  let new_dur = probe_duration(&dest_path);
 
-                                                 // Check if durations match (within tolerance)
                                                  let tolerance_sec = 2.0;
                                                  let tolerance_pct = 0.05;
                                                  let diff = (original_dur.unwrap_or(0.0) - new_dur.unwrap_or(0.0)).abs();
@@ -1109,9 +712,7 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
                                                  };
                                                  let is_match = diff <= tolerance_sec || rel <= tolerance_pct;
 
-                                                 // If durations match, auto-replace the original
                                                  if is_match && dest_path != path {
-                                                     // Backup original if requested (only after successful download)
                                                      if backup && path.exists() {
                                                          let backup_dir = parent.join("backup-ksi");
                                                          if !backup_dir.exists() {
@@ -1124,7 +725,6 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
                                                              println!("[GUI] Backed up to: {:?}", backup_path);
                                                          }
                                                      }
-                                                     // Delete original
                                                      if let Err(e) = fs::remove_file(&path) {
                                                          eprintln!("[GUI] Failed to delete original: {}", e);
                                                      } else {
@@ -1132,7 +732,6 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
                                                      }
                                                  }
 
-                                                 // Probe bitrate of the new file
                                                  let new_bitrate = probe_bitrate(&dest_path);
 
                                                  downloaded.push(RedownloadResult {
@@ -1159,17 +758,15 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
     }).await.map_err(|e| e.to_string())?
 }
 
-/// Download a file using a direct URL (for manual fallback when auto-search fails)
 #[tauri::command]
 async fn download_with_url(original_path: String, url: String, backup: bool, app: tauri::AppHandle) -> Result<RedownloadResult, String> {
-    let settings = load_settings_path(&app);
+    let settings = load_settings(&app);
     tauri::async_runtime::spawn_blocking(move || {
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(300))
             .build()
             .map_err(|e| format!("Client build failed: {e}"))?;
         
-        // Use configured Core API URL from settings
         let api_base = settings.core_api_url
             .as_ref()
             .map(|s| s.trim_end_matches('/').to_string())
@@ -1187,7 +784,6 @@ async fn download_with_url(original_path: String, url: String, backup: bool, app
         
         println!("[GUI] Manual download from {} for: {}", source_type, original_path);
         
-        // Request Download
         let payload = serde_json::json!({
             "url": url,
             "source": source_type
@@ -1211,7 +807,6 @@ async fn download_with_url(original_path: String, url: String, backup: bool, app
         let final_filename = json["filename"].as_str().unwrap_or("downloaded.mp3");
         let dest_path = parent.join(final_filename);
 
-        // Download file content
         let file_url = format!("{}{}", api_base, rel_url);
         let mut file_resp = client.get(&file_url).send()
             .map_err(|e| format!("Failed to fetch file: {}", e))?;
@@ -1232,28 +827,24 @@ async fn download_with_url(original_path: String, url: String, backup: bool, app
         let new_dur = probe_duration(&dest_path).unwrap_or(0.0);
         println!("[GUI] New duration: {}", new_dur);
 
-        // Auto-replace logic if backup enabled
         if backup {
              let backup_dir = parent.join("backup-ksi");
              if !backup_dir.exists() {
                   let _ = fs::create_dir_all(&backup_dir);
              }
              let backup_path = backup_dir.join(path.file_name().unwrap_or_default());
-             // Copy original to backup
              if let Err(e) = fs::copy(&path, &backup_path) {
                   eprintln!("[GUI] Failed to backup file: {}", e);
              } else {
                   println!("[GUI] Backed up to: {:?}", backup_path);
              }
              
-             // Replace original
              if let Err(e) = fs::remove_file(&path) {
                  eprintln!("[GUI] Failed to delete original: {}", e);
              } else if let Err(e) = fs::rename(&dest_path, &path) {
                  eprintln!("[GUI] Failed to move new file to original: {}", e);
              } else {
                  println!("[GUI] Replaced original file");
-                 // Ghostbuster: Ensure source is gone
                  if dest_path.exists() && dest_path != path {
                      println!("[GUI] Source file persisted after rename. Force deleting: {:?}", dest_path);
                      let _ = fs::remove_file(&dest_path);
@@ -1265,7 +856,7 @@ async fn download_with_url(original_path: String, url: String, backup: bool, app
         let new_bitrate = probe_bitrate(new_file_path);
 
         Ok(RedownloadResult {
-            original_path: original_path,
+            original_path,
             new_path: new_file_path.to_string_lossy().to_string(),
             original_duration: Some(original_dur),
             new_duration: Some(new_dur),
@@ -1275,7 +866,6 @@ async fn download_with_url(original_path: String, url: String, backup: bool, app
     }).await.map_err(|e| e.to_string())?
 }
 
-/// Revert a replacement by restoring the backup file
 #[tauri::command]
 async fn revert_replacement(original_path: String) -> Result<bool, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -1290,20 +880,16 @@ async fn revert_replacement(original_path: String) -> Result<bool, String> {
             return Err("Backup file not found".to_string());
         }
 
-        // Delete current file (the new one)
         if path.exists() {
             fs::remove_file(&path).map_err(|e| format!("Failed to remove current file: {}", e))?;
         }
 
-        // Restore backup
         fs::rename(&backup_path, &path).map_err(|e| format!("Failed to restore backup: {}", e))?;
         
-        // Aggressive Cleanup: Remove potential ghost files with different extensions (e.g. .m4a)
         if let Some(_) = path.file_stem() {
              let ghosts = ["m4a", "flac", "wav", "mp3", "aac", "ogg"];
              for ext in ghosts {
                   let ghost_path = path.with_extension(ext);
-                  // Don't delete the path we just restored!
                   if ghost_path == path { continue; }
                   
                   if ghost_path.exists() {
@@ -1316,16 +902,6 @@ async fn revert_replacement(original_path: String) -> Result<bool, String> {
         println!("[GUI] Reverted successfully");
         Ok(true)
     }).await.map_err(|e| e.to_string())?
-}
-
-
-
-fn settings_path(app: &tauri::AppHandle) -> PathBuf {
-    app.path()
-        .app_data_dir()
-        .or_else(|_| app.path().app_cache_dir())
-        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
-        .join("settings.json")
 }
 
 #[tauri::command]
@@ -1341,7 +917,6 @@ fn accept_redownload(original: String, new_path: String) -> Result<String, Strin
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
 
-    // Backup old file
     if orig.exists() {
         let ext = orig.extension().and_then(|e| e.to_str()).unwrap_or("");
         let backup_ext = if ext.is_empty() {
@@ -1366,8 +941,6 @@ fn discard_file(path: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Extract embedded cover art from an audio file using ffmpeg
-/// Returns the path to the extracted image file, or None if no cover found
 #[tauri::command]
 fn extract_cover(audio_path: String) -> Result<Option<String>, String> {
     let path = PathBuf::from(&audio_path);
@@ -1375,17 +948,14 @@ fn extract_cover(audio_path: String) -> Result<Option<String>, String> {
         return Err(format!("File not found: {}", audio_path));
     }
 
-    // Create temp output path
     let temp_dir = std::env::temp_dir();
     let hash = format!("{:x}", md5::compute(&audio_path));
     let output_path = temp_dir.join(format!("keson-cover-{}.jpg", hash));
 
-    // If already extracted, return cached
     if output_path.exists() {
         return Ok(Some(output_path.to_string_lossy().to_string()));
     }
 
-    // Run ffmpeg to extract cover
     let status = Command::new("ffmpeg")
         .args([
             "-y",
@@ -1398,7 +968,6 @@ fn extract_cover(audio_path: String) -> Result<Option<String>, String> {
         .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
 
     if !status.status.success() {
-        // No cover or error
         return Ok(None);
     }
 
@@ -1407,100 +976,4 @@ fn extract_cover(audio_path: String) -> Result<Option<String>, String> {
     } else {
         Ok(None)
     }
-}
-
-fn probe_duration(path: &Path) -> Option<f64> {
-    let output = Command::new("ffprobe")
-        .args([
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-            path.to_string_lossy().as_ref(),
-        ])
-        .output()
-        .ok()?;
-
-    if !output.status.success() {
-        return None;
-    }
-    let text = String::from_utf8_lossy(&output.stdout);
-    let line = text.lines().next()?.trim();
-    f64::from_str(line).ok()
-}
-
-fn probe_bitrate(path: &Path) -> Option<u32> {
-    // Use whatsmybitrate for real spectral analysis
-    // Find vendor directory relative to executable
-    let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
-    
-    // Try several possible locations for vendor
-    let vendor_candidates = [
-        exe_dir.join("../vendor/whatsmybitrate"),
-        exe_dir.join("vendor/whatsmybitrate"),
-        PathBuf::from("vendor/whatsmybitrate"),
-        PathBuf::from("../vendor/whatsmybitrate"),
-    ];
-    
-    let vendor_dir = vendor_candidates.iter()
-        .find(|p| p.exists())
-        .cloned()
-        .unwrap_or_else(|| PathBuf::from("vendor/whatsmybitrate"));
-
-    let script = format!(
-        r#"
-import sys, json
-sys.path.insert(0, r"{vendor}")
-from wmb_core import AudioFile
-import wmb_core
-wmb_core.MAX_LOAD_SECONDS = 30
-af = AudioFile(sys.argv[1])
-af.analyze(generate_spectrogram_flag=False, assets_dir=None)
-print(json.dumps({{"bitrate": af.to_dict().get("estimated_bitrate_numeric")}}))
-"#,
-        vendor = vendor_dir.display()
-    );
-
-    let output = Command::new("python3")
-        .args(["-c", &script, path.to_str()?])
-        .output()
-        .ok()?;
-
-    if !output.status.success() {
-        eprintln!("[probe_bitrate] whatsmybitrate failed: {}", String::from_utf8_lossy(&output.stderr));
-        return None;
-    }
-
-    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
-    parsed.get("bitrate")
-        .and_then(|v| v.as_f64())
-        .map(|v| v.round() as u32)
-}
-
-#[allow(dead_code)]
-fn find_latest_in_dir(dir: &Path) -> Option<PathBuf> {
-    let mut entries: Vec<(std::time::SystemTime, PathBuf)> = fs::read_dir(dir)
-        .ok()?
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
-        .filter_map(|e| {
-            let meta = e.metadata().ok()?;
-            let m = meta.modified().ok()?;
-            Some((m, e.path()))
-        })
-        .collect();
-
-    entries.sort_by(|a, b| b.0.cmp(&a.0));
-    entries.into_iter().map(|(_, p)| p).find(|p| {
-        if let Some(ext) = p.extension().and_then(|s| s.to_str()) {
-            matches!(
-                ext,
-                "mp3" | "m4a" | "opus" | "webm" | "m4b" | "ogg" | "flac"
-            )
-        } else {
-            false
-        }
-    })
 }

@@ -4,11 +4,8 @@
   import SettingsModal from "./components/SettingsModal.svelte";
   import UpdateNotification from "./components/UpdateNotification.svelte";
   import { onMount } from "svelte";
-  import {
-    fetchSettings,
-    persistSettings,
-    isDesktop,
-  } from "./services/settingsService";
+  import { fetchSettings, persistSettings } from "./services/settingsService";
+  import { isDesktop } from "./services/scanService";
   import { startMatrix } from "./services/matrixRain";
 
   let activeTab = "quality";
@@ -132,7 +129,7 @@
   <header class="hero" data-tauri-drag-region>
     <div>
       <p class="eyebrow">Keson</p>
-      <h1>Spectral Improver [DEV MODE]</h1>
+      <h1>Spectral Improver</h1>
       <p class="sub">Awaken ton KESON avec des fichiers large SPECTRE</p>
     </div>
     <div class="hero-right">

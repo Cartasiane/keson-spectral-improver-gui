@@ -4,6 +4,7 @@
   import ScanRow from "./ScanRow.svelte";
   import RedownloadModal from "./RedownloadModal.svelte";
   import DownloadedComparison from "./DownloadedComparison.svelte";
+  import ManualUrlModal from "./ManualUrlModal.svelte";
   import { onDestroy } from "svelte";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import {
@@ -18,7 +19,6 @@
     acceptRedownload,
     discardFile,
   } from "../services/scanService";
-  import { Link } from "lucide-svelte";
 
   let scanFolder = "";
   let scanning = false;
@@ -440,6 +440,13 @@
     }
   }
 
+  // Handler for ManualUrlModal submit event
+  async function handleManualUrlSubmit(event) {
+    const url = event.detail;
+    manualUrlInput = url;
+    await submitManualUrl();
+  }
+
   async function submitManualUrl() {
     const url = manualUrlInput.trim();
 
@@ -655,108 +662,16 @@
   />
 
   <!-- Manual URL Input Modal -->
-  {#if manualUrlTrack}
-    <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-    <div
-      class="modal-overlay"
-      on:click={closeManualUrl}
-      on:keydown={(e) => e.key === "Escape" && closeManualUrl()}
-      role="dialog"
-      aria-modal="true"
-      tabindex="-1"
-    >
-      <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-      <!-- svelte-ignore a11y-click-events-have-key-events -->
-      <div class="modal" on:click|stopPropagation role="document">
-        <h3><Link size={20} /> Piste non trouvée</h3>
-        <p class="muted">
-          "{manualUrlTrack.name || manualUrlTrack.path.split("/").pop()}" n'a
-          pas été trouvé automatiquement.
-        </p>
-        <p>Entrez une URL Tidal ou SoundCloud :</p>
-        <input
-          type="url"
-          bind:value={manualUrlInput}
-          placeholder="https://tidal.com/... ou https://soundcloud.com/..."
-          class="url-input"
-        />
-        {#if manualUrlError}
-          <p class="error">{manualUrlError}</p>
-        {/if}
-        <div class="modal-actions">
-          <button class="btn primary" on:click={submitManualUrl}>
-            Télécharger
-          </button>
-          <button class="btn ghost" on:click={closeManualUrl}> Ignorer </button>
-        </div>
-      </div>
-    </div>
-  {/if}
+  <ManualUrlModal
+    track={manualUrlTrack}
+    error={manualUrlError}
+    on:close={closeManualUrl}
+    on:error={(e) => (manualUrlError = e.detail)}
+    on:submit={handleManualUrlSubmit}
+  />
 </section>
 
 <style>
-  .modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.7);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-  }
-
-  .modal {
-    background: var(--bg-card, #1a1a2e);
-    border-radius: 12px;
-    padding: 24px;
-    max-width: 500px;
-    width: 90%;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-  }
-
-  .modal h3 {
-    margin: 0 0 12px;
-    font-size: 1.3rem;
-  }
-
-  .modal .muted {
-    color: var(--text-muted, #888);
-    font-size: 0.9rem;
-    margin-bottom: 16px;
-  }
-
-  .url-input {
-    width: 100%;
-    padding: 12px;
-    border: 1px solid var(--border, #333);
-    border-radius: 8px;
-    background: var(--bg-input, #0f0f1a);
-    color: var(--text, #fff);
-    font-size: 1rem;
-    margin-bottom: 8px;
-  }
-
-  .url-input:focus {
-    outline: none;
-    border-color: var(--primary, #646cff);
-  }
-
-  .error {
-    color: #ff6b6b;
-    font-size: 0.85rem;
-    margin: 8px 0;
-  }
-
-  .modal-actions {
-    display: flex;
-    gap: 10px;
-    margin-top: 16px;
-    justify-content: flex-end;
-  }
-
   .downloading-placeholder {
     display: flex;
     flex-direction: column;

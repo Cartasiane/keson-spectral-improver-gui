@@ -4,3 +4,14 @@ dist/
 .env
 src-tauri/target/
 *.log
+
+# Tauri generated files (schema changes frequently)
+src-tauri/gen/schemas/
+
+# Build bundles
+*.bundle
+*.app
+*.dmg
+*.deb
+*.rpm
+*.AppImage

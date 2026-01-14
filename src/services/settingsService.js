@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
+import { isDesktop } from './scanService'
 
 // Small helper around Tauri settings calls so components stay lean.
-export const isDesktop = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 
 export async function fetchSettings() {
   if (!isDesktop) return null
