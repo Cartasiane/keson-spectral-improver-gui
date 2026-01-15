@@ -10,12 +10,9 @@ pub struct Settings {
     pub rayon_threads: usize,
     pub cache_enabled: bool,
     pub cache_max_entries: usize,
+    /// Client token received after registration with the Core server
     #[serde(default)]
-    pub core_api_url: Option<String>,
-    #[serde(default)]
-    pub core_api_user: Option<String>,
-    #[serde(default)]
-    pub core_api_password: Option<String>,
+    pub client_token: Option<String>,
 }
 
 impl Default for Settings {
@@ -26,9 +23,7 @@ impl Default for Settings {
             rayon_threads: 0,
             cache_enabled: true,
             cache_max_entries: 10_000,
-            core_api_url: Some("http://localhost:3001".to_string()),
-            core_api_user: None,
-            core_api_password: None,
+            client_token: None,
         }
     }
 }

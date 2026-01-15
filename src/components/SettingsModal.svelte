@@ -28,12 +28,12 @@
 />
 <div class="modal">
   <div class="modal-head">
-    <h3>Paramètres API</h3>
+    <h3>Paramètres</h3>
     <button class="icon-btn" on:click={() => dispatch("close")}>[X]</button>
   </div>
   <div class="settings-grid">
     <label>
-      <span>Seuil bas (kbpss)</span>
+      <span>Seuil bas (kbps)</span>
       <small class="muted"
         >Sous ce débit, le fichier est signalé comme low.</small
       >
@@ -46,7 +46,7 @@
       />
     </label>
     <label>
-      <span>Fenêtre d’analyse (s)</span>
+      <span>Fenêtre d'analyse (s)</span>
       <small class="muted">Durée échantillonnée pour estimer le bitrate.</small>
       <input
         type="number"
@@ -59,7 +59,7 @@
     </label>
     <label>
       <span>Threads Rayon (0 = auto)</span>
-      <small class="muted">Nombre de threads CPU pour l’analyse.</small>
+      <small class="muted">Nombre de threads CPU pour l'analyse.</small>
       <input
         type="number"
         min="0"
@@ -74,44 +74,11 @@
         checked={settings.cache_enabled}
         on:change={(e) => updateSetting("cache_enabled", e.target.checked)}
       />
-      <span>Activer le cache d’analyse</span>
+      <span>Activer le cache d'analyse</span>
       <small class="muted">Stocke les résultats pour éviter de rescanner.</small
       >
     </label>
 
-    <hr
-      style="grid-column: 1 / -1; margin: 10px 0; border:0; border-top:1px solid #333;"
-    />
-    <label style="grid-column: 1 / -1;">
-      <span>Core API URL</span>
-      <small class="muted"
-        >URL of the Keson Core server (e.g. https://my-core.com)</small
-      >
-      <input
-        type="text"
-        placeholder="https://keson-core.example.com"
-        value={settings.core_api_url || ""}
-        on:input={(e) => updateSetting("core_api_url", e.target.value)}
-      />
-    </label>
-    <label>
-      <span>API Username</span>
-      <input
-        type="text"
-        placeholder="User"
-        value={settings.core_api_user || ""}
-        on:input={(e) => updateSetting("core_api_user", e.target.value)}
-      />
-    </label>
-    <label>
-      <span>API Password</span>
-      <input
-        type="password"
-        placeholder="Password"
-        value={settings.core_api_password || ""}
-        on:input={(e) => updateSetting("core_api_password", e.target.value)}
-      />
-    </label>
     <hr
       style="grid-column: 1 / -1; margin: 10px 0; border:0; border-top:1px solid #333;"
     />
@@ -128,6 +95,12 @@
           updateSetting("cache_max_entries", Number(e.target.value))}
       />
     </label>
+
+    {#if settings.client_token}
+      <div class="status-row">
+        <span class="status-badge registered">✓ Enregistré</span>
+      </div>
+    {/if}
   </div>
   {#if message}
     <p class="hint">{message}</p>

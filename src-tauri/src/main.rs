@@ -24,6 +24,9 @@ use cache::{cache_path, load_cache, save_cache};
 pub use settings::{get_settings, load_settings, save_settings};
 use types::{CacheEntry, DownloadResult, QueueStats, RedownloadResult, ScanResult};
 
+/// Hardcoded Core API URL - all clients use this endpoint
+const CORE_API_URL: &str = "https://keson.api.acab.love";
+
 #[tauri::command]
 fn queue_stats() -> QueueStats {
     QueueStats {
@@ -45,23 +48,21 @@ async fn download_link(
             .unwrap_or_else(|_| String::from("./")),
     };
     let settings = load_settings(&app);
+    
+    // Check if client is registered
+    let client_token = settings.client_token.as_ref()
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| "Non enregistré. Veuillez entrer votre code d'invitation.".to_string())?;
 
-    let download_task_result = if let Some(api_url) = &settings.core_api_url {
-        if !api_url.trim().is_empty() {
-            let url_clone = url.clone();
-            let out_dir_clone = out_dir.clone();
-            let settings_clone = settings.clone();
-            async_runtime::spawn_blocking(move || {
-                download_via_api(&url_clone, &out_dir_clone, &settings_clone)
-            })
-            .await
-            .map_err(|e| format!("Task failed: {e}"))?
-        } else {
-            download_local(&url, &out_dir)
-        }
-    } else {
-        download_local(&url, &out_dir)
-    };
+    let url_clone = url.clone();
+    let out_dir_clone = out_dir.clone();
+    let token_clone = client_token.clone();
+    
+    let download_task_result = async_runtime::spawn_blocking(move || {
+        download_via_api(&url_clone, &out_dir_clone, &token_clone)
+    })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))?;
 
     let mut res = download_task_result?;
 
@@ -181,23 +182,16 @@ fn download_local(url: &str, out_dir: &str) -> Result<DownloadResult, String> {
 fn download_via_api(
     url: &str,
     output_dir: &str,
-    settings: &settings::Settings,
+    client_token: &str,
 ) -> Result<DownloadResult, String> {
-    let api_url = settings.core_api_url.as_ref().unwrap().trim_end_matches('/');
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(300))
         .build()
         .map_err(|e| format!("Client build failed: {e}"))?;
     
-    let mut req_builder = client.post(format!("{}/download-any", api_url));
-    
-    if let (Some(u), Some(p)) = (&settings.core_api_user, &settings.core_api_password) {
-        if !u.is_empty() {
-             req_builder = req_builder.basic_auth(u, Some(p));
-        }
-    }
-
-    let res = req_builder
+    let res = client
+        .post(format!("{}/download-any", CORE_API_URL))
+        .header("X-Client-Token", client_token)
         .json(&serde_json::json!({ "url": url }))
         .send()
         .map_err(|e| format!("API request failed: {e}"))?;
@@ -205,6 +199,10 @@ fn download_via_api(
     if !res.status().is_success() {
         let status = res.status();
         let text = res.text().unwrap_or_default();
+        
+        if status == reqwest::StatusCode::UNAUTHORIZED {
+            return Err("AUTH_REQUIRED: Session expirée ou invalide. Veuillez vous réenregistrer.".to_string());
+        }
         
         if status == reqwest::StatusCode::SERVICE_UNAVAILABLE {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
@@ -231,16 +229,14 @@ fn download_via_api(
     let full_dl_url = if download_url.starts_with("http") {
         download_url.to_string()
     } else {
-        format!("{}{}", api_url, download_url)
+        format!("{}{}", CORE_API_URL, download_url)
     };
 
-    let mut dl_req = client.get(&full_dl_url);
-    if let (Some(u), Some(p)) = (&settings.core_api_user, &settings.core_api_password) {
-        if !u.is_empty() {
-             dl_req = dl_req.basic_auth(u, Some(p));
-        }
-    }
-    let mut dl_res = dl_req.send().map_err(|e| format!("Download failed: {e}"))?;
+    let mut dl_res = client
+        .get(&full_dl_url)
+        .header("X-Client-Token", client_token)
+        .send()
+        .map_err(|e| format!("Download failed: {e}"))?;
     
     if !dl_res.status().is_success() {
          return Err(format!("File download failed: {}", dl_res.status()));
@@ -519,6 +515,119 @@ fn vendor_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(base)
 }
 
+/// Response from auth status check
+#[derive(serde::Serialize)]
+struct AuthStatus {
+    registered: bool,
+    invite_required: bool,
+    slots_remaining: Option<u32>,
+}
+
+/// Register client with invite code
+#[tauri::command]
+async fn register_client(invite_code: String, app: tauri::AppHandle) -> Result<(), String> {
+    let device_name = tauri_plugin_os::hostname();
+    
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .map_err(|e| format!("Client build failed: {e}"))?;
+        
+        let resp = client
+            .post(format!("{}/register", CORE_API_URL))
+            .json(&serde_json::json!({
+                "invite_code": invite_code,
+                "device_name": device_name
+            }))
+            .send()
+            .map_err(|e| format!("Registration request failed: {e}"))?;
+        
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().unwrap_or_default();
+            
+            if status == reqwest::StatusCode::UNAUTHORIZED {
+                return Err("Code d'invitation invalide.".to_string());
+            }
+            
+            return Err(format!("Échec de l'enregistrement: {}", text));
+        }
+        
+        let body: serde_json::Value = resp.json()
+            .map_err(|e| format!("Invalid JSON: {e}"))?;
+        
+        let token = body.get("client_token")
+            .and_then(|t| t.as_str())
+            .ok_or_else(|| "No client_token in response".to_string())?;
+        
+        Ok(token.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    
+    // Save token to settings
+    let mut settings = load_settings(&app);
+    settings.client_token = Some(result);
+    save_settings(app, settings)?;
+    
+    Ok(())
+}
+
+/// Check if client is registered and get auth status
+#[tauri::command]
+async fn check_auth_status(app: tauri::AppHandle) -> Result<AuthStatus, String> {
+    let settings = load_settings(&app);
+    
+    // If we have a token, we're registered
+    let registered = settings.client_token
+        .as_ref()
+        .map(|t| !t.is_empty())
+        .unwrap_or(false);
+    
+    if registered {
+        return Ok(AuthStatus {
+            registered: true,
+            invite_required: false,
+            slots_remaining: None,
+        });
+    }
+    
+    // Check with server for invite status
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .map_err(|e| format!("Client build failed: {e}"))?;
+        
+        let resp = client
+            .get(format!("{}/auth/status", CORE_API_URL))
+            .send()
+            .map_err(|e| format!("Auth status request failed: {e}"))?;
+        
+        if !resp.status().is_success() {
+            return Err("Failed to get auth status".to_string());
+        }
+        
+        let body: serde_json::Value = resp.json()
+            .map_err(|e| format!("Invalid JSON: {e}"))?;
+        
+        let slots = body.get("slots_remaining")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u32);
+        
+        Ok(AuthStatus {
+            registered: false,
+            invite_required: true,
+            slots_remaining: slots,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    
+    Ok(result)
+}
+
 fn main() {
     init_rayon_pool();
     tauri::Builder::default()
@@ -545,7 +654,9 @@ fn main() {
             accept_redownload,
             discard_file,
             revert_replacement,
-            extract_cover
+            extract_cover,
+            register_client,
+            check_auth_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -576,18 +687,17 @@ fn init_rayon_pool_with(threads: usize) {
 #[tauri::command]
 async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: tauri::AppHandle) -> Result<Vec<RedownloadResult>, String> {
     let settings = load_settings(&app);
+    let client_token = settings.client_token.clone()
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| "Non enregistré. Veuillez entrer votre code d'invitation.".to_string())?;
+    
     tauri::async_runtime::spawn_blocking(move || {
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(300))
             .build()
             .map_err(|e| format!("Client build failed: {e}"))?;
         
-        let api_base = settings.core_api_url
-            .as_ref()
-            .map(|s| s.trim_end_matches('/').to_string())
-            .unwrap_or_else(|| "http://localhost:3001".to_string());
-        
-        println!("[GUI] Using Core API: {}", api_base);
+        println!("[GUI] Using Core API: {}", CORE_API_URL);
         let mut downloaded = Vec::new();
 
         for path_str in paths {
@@ -629,7 +739,8 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
             let mut cover_url: Option<String> = None;
             let mut source_type = "unknown";
 
-            match client.post(format!("{}/search/track", api_base))
+            match client.post(format!("{}/search/track", CORE_API_URL))
+                .header("X-Client-Token", &client_token)
                 .json(&search_payload)
                 .send() {
                 Ok(resp) => {
@@ -665,7 +776,8 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
                 "source": source_type
             });
 
-            match client.post(format!("{}/download", api_base))
+            match client.post(format!("{}/download", CORE_API_URL))
+                .header("X-Client-Token", &client_token)
                 .json(&payload)
                 .send() {
                     Ok(resp) => {
@@ -687,11 +799,13 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
                                     }
                                 }
 
-                                let file_url = format!("{}{}", api_base, rel_url);
+                                let file_url = format!("{}{}", CORE_API_URL, rel_url);
                                 let final_filename = json["filename"].as_str().unwrap_or("downloaded.mp3");
                                 let dest_path = parent.join(final_filename);
 
-                                match client.get(&file_url).send() {
+                                match client.get(&file_url)
+                                     .header("X-Client-Token", &client_token)
+                                     .send() {
                                      Ok(mut file_resp) => {
                                          if let Ok(mut file) = fs::File::create(&dest_path) {
                                              if let Err(e) = file_resp.copy_to(&mut file) {
@@ -761,18 +875,17 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
 #[tauri::command]
 async fn download_with_url(original_path: String, url: String, backup: bool, app: tauri::AppHandle) -> Result<RedownloadResult, String> {
     let settings = load_settings(&app);
+    let client_token = settings.client_token.clone()
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| "Non enregistré. Veuillez entrer votre code d'invitation.".to_string())?;
+    
     tauri::async_runtime::spawn_blocking(move || {
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(300))
             .build()
             .map_err(|e| format!("Client build failed: {e}"))?;
         
-        let api_base = settings.core_api_url
-            .as_ref()
-            .map(|s| s.trim_end_matches('/').to_string())
-            .unwrap_or_else(|| "http://localhost:3001".to_string());
-        
-        println!("[GUI] Using Core API: {}", api_base);
+        println!("[GUI] Using Core API: {}", CORE_API_URL);
         
         let path = PathBuf::from(&original_path);
         let parent = path
@@ -789,7 +902,8 @@ async fn download_with_url(original_path: String, url: String, backup: bool, app
             "source": source_type
         });
 
-        let resp = client.post(format!("{}/download", api_base))
+        let resp = client.post(format!("{}/download", CORE_API_URL))
+            .header("X-Client-Token", &client_token)
             .json(&payload)
             .send()
             .map_err(|e| format!("Download request failed: {}", e))?;
@@ -807,8 +921,10 @@ async fn download_with_url(original_path: String, url: String, backup: bool, app
         let final_filename = json["filename"].as_str().unwrap_or("downloaded.mp3");
         let dest_path = parent.join(final_filename);
 
-        let file_url = format!("{}{}", api_base, rel_url);
-        let mut file_resp = client.get(&file_url).send()
+        let file_url = format!("{}{}", CORE_API_URL, rel_url);
+        let mut file_resp = client.get(&file_url)
+            .header("X-Client-Token", &client_token)
+            .send()
             .map_err(|e| format!("Failed to fetch file: {}", e))?;
             
         let mut file = fs::File::create(&dest_path)

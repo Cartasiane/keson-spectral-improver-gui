@@ -2,8 +2,10 @@
   import DownloadTab from "./components/DownloadTab.svelte";
   import QualityTab from "./components/QualityTab.svelte";
   import SettingsModal from "./components/SettingsModal.svelte";
+  import RegistrationModal from "./components/RegistrationModal.svelte";
   import UpdateNotification from "./components/UpdateNotification.svelte";
   import { onMount } from "svelte";
+  import { invoke } from "@tauri-apps/api/core";
   import { fetchSettings, persistSettings } from "./services/settingsService";
   import { isDesktop } from "./services/scanService";
   import { startMatrix } from "./services/matrixRain";
@@ -16,14 +18,17 @@
     rayon_threads: 0,
     cache_enabled: true,
     cache_max_entries: 10000,
-    core_api_url: "http://localhost:3001",
-    core_api_user: "",
-    core_api_password: "",
+    client_token: null,
   };
   let settingsLoading = false;
   let settingsMessage = "";
   let matrixCanvas;
   let stopMatrix = () => {};
+
+  // Auth state
+  let authChecked = false;
+  let isRegistered = false;
+  let slotsRemaining = null;
 
   // Update state
   let updateAvailable = null;
@@ -33,10 +38,35 @@
 
   onMount(() => {
     loadSettings();
+    checkAuth();
     stopMatrix = startMatrix(matrixCanvas);
     checkForUpdates();
     return () => stopMatrix();
   });
+
+  async function checkAuth() {
+    if (!isDesktop) {
+      authChecked = true;
+      isRegistered = true; // Always registered in browser dev mode
+      return;
+    }
+
+    try {
+      const status = await invoke("check_auth_status");
+      isRegistered = status.registered;
+      slotsRemaining = status.slots_remaining;
+    } catch (err) {
+      console.error("Auth check failed:", err);
+      isRegistered = false;
+    } finally {
+      authChecked = true;
+    }
+  }
+
+  function handleRegistered() {
+    isRegistered = true;
+    loadSettings(); // Reload settings to get the new token
+  }
 
   async function checkForUpdates() {
     if (!isDesktop) return;
@@ -113,6 +143,13 @@
 </script>
 
 <canvas class="matrix-bg" bind:this={matrixCanvas} aria-hidden="true"></canvas>
+
+<!-- Registration Modal - shown when not registered -->
+<RegistrationModal
+  show={authChecked && !isRegistered}
+  {slotsRemaining}
+  on:registered={handleRegistered}
+/>
 
 {#if updateAvailable && !updateDismissed}
   <UpdateNotification
