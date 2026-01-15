@@ -31,7 +31,7 @@
   async function refreshQueue() {
     if (isDesktop && !busy) {
       try {
-        queue = await invoke("get_queue_status");
+        queue = await invoke("queue_stats");
       } catch (e) {}
     }
   }
