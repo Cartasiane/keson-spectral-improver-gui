@@ -12,9 +12,32 @@ use tauri::Manager;
 use crate::types::{CacheEntry, ExtractedMetadata};
 use crate::cache::enforce_cache_limit;
 
-// Helper to get resource path
+// Helper to get resource path, checking both root and 'resources' subdir
 pub fn get_resource_path(app: &tauri::AppHandle, name: &str) -> Option<PathBuf> {
-    app.path().resource_dir().ok().map(|p| p.join(name))
+    let res_dir = app.path().resource_dir().ok()?;
+    
+    // Check direct path (dev mode often)
+    let direct = res_dir.join(name);
+    if direct.exists() {
+        return Some(direct);
+    }
+
+    // Check resources subdir (prod bundle often)
+    let nested = res_dir.join("resources").join(name);
+    if nested.exists() {
+        return Some(nested);
+    }
+    
+    // Check _up_/vendor (bundled ../vendor/whatsmybitrate often ends up here)
+    if name == "whatsmybitrate" {
+         let up_vendor = res_dir.join("_up_").join("vendor").join(name);
+         if up_vendor.exists() {
+             return Some(up_vendor);
+         }
+    }
+    
+    // Fallback to direct if neither found (or maybe let caller decide)
+    Some(direct) 
 }
 
 // Helper to get environment with bundled binaries in PATH
@@ -23,11 +46,21 @@ pub fn get_env_with_resources(app: &tauri::AppHandle) -> HashMap<String, String>
     
     if let Ok(resource_dir) = app.path().resource_dir() {
         if let Ok(current_path) = std::env::var("PATH") {
-            // Prepend resource dir to PATH so our bundled binaries take precedence
+            // Add both resource_dir and resource_dir/resources to PATH to cover all bases
+            let nested_res = resource_dir.join("resources");
+            
             #[cfg(unix)]
-            let new_path = format!("{}:{}", resource_dir.to_string_lossy(), current_path);
+            let new_path = format!("{}:{}:{}", 
+                resource_dir.to_string_lossy(), 
+                nested_res.to_string_lossy(),
+                current_path
+            );
             #[cfg(windows)]
-            let new_path = format!("{};{}", resource_dir.to_string_lossy(), current_path);
+            let new_path = format!("{};{};{}", 
+                resource_dir.to_string_lossy(), 
+                nested_res.to_string_lossy(), 
+                current_path
+            );
             
             envs.insert("PATH".to_string(), new_path);
         }

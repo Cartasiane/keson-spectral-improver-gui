@@ -15,7 +15,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use tauri::path::BaseDirectory;
 use tauri::{async_runtime, Emitter, Manager};
 use walkdir::WalkDir;
 
