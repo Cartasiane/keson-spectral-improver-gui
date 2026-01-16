@@ -4,7 +4,6 @@
   import ScanRow from "./ScanRow.svelte";
   import RedownloadModal from "./RedownloadModal.svelte";
   import DownloadedComparison from "./DownloadedComparison.svelte";
-  import ManualUrlModal from "./ManualUrlModal.svelte";
   import { onDestroy } from "svelte";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import {
@@ -33,12 +32,6 @@
   let spectra = {};
   let spectroLoading = {};
 
-  // Manual URL input state
-  let manualUrlTrack = null; // Track needing manual URL
-  let manualUrlInput = "";
-  let manualUrlError = "";
-  let failedMatches = []; // Queue of tracks that failed auto-match
-
   // Redownload modal state
   let showRedownloadModal = false;
   let redownloadTargets = []; // paths to redownload
@@ -47,10 +40,16 @@
   // Downloaded comparison state
   let downloadedItems = []; // Array of comparison objects
 
+  $: noMatchCount = Object.values(downloadStatus).filter(
+    (s) => s === "no-match"
+  ).length;
+
   $: filteredResults =
     filter === "all"
       ? scanResults
-      : scanResults.filter((r) => r.status === filter);
+      : filter === "no-match"
+        ? scanResults.filter((r) => downloadStatus[r.path] === "no-match")
+        : scanResults.filter((r) => r.status === filter);
 
   async function pickFolder() {
     const choice = await pickFolderDialog();
@@ -224,7 +223,7 @@
     try {
       // Process one at a time for per-track progress
       const results = [];
-      failedMatches = []; // Reset failed matches queue
+      let noMatchesCount = 0;
 
       for (const filePath of redownloadTargets) {
         downloadStatus = { ...downloadStatus, [filePath]: "downloading" };
@@ -234,10 +233,7 @@
 
           // Check if no match was found (empty results)
           if (saved.length === 0) {
-            const trackItem = scanResults.find((s) => s.path === filePath);
-            if (trackItem) {
-              failedMatches = [...failedMatches, trackItem];
-            }
+            noMatchesCount++;
             downloadStatus = { ...downloadStatus, [filePath]: "no-match" };
             continue;
           }
@@ -337,15 +333,12 @@
       if (flagged > 0) {
         msgParts.push(`${flagged} à vérifier`);
       }
-      if (failedMatches.length > 0) {
-        msgParts.push(`${failedMatches.length} non trouvé(s)`);
+      if (noMatchesCount > 0) {
+        msgParts.push(`${noMatchesCount} non trouvé(s)`);
+        // Switch to no-match filter so user sees them
+        filter = "no-match";
       }
       scanMessage = msgParts.join(", ") || "Terminé.";
-
-      // If there are failed matches, show manual URL modal for the first one
-      if (failedMatches.length > 0) {
-        promptManualUrl(failedMatches[0]);
-      }
     } catch (err) {
       console.error(err);
       scanMessage =
@@ -355,10 +348,7 @@
     } finally {
       retrying = false;
       redownloadTargets = [];
-      // Clear status after a delay
-      setTimeout(() => {
-        downloadStatus = {};
-      }, 3000);
+      // Don't clear status automatically - let user handle no-match items
     }
   }
 
@@ -412,58 +402,22 @@
     } catch (err) {
       console.warn("discard failed", err);
     }
+    // Set status to no-match so user can try again with a different URL
+    downloadStatus = { ...downloadStatus, [entry.original_path]: "no-match" };
     reviewQueue = reviewQueue.filter((r) => r !== entry);
+    scanMessage = "Ignoré - vous pouvez réessayer avec une autre URL.";
   }
 
-  // Manual URL input functions
-  function promptManualUrl(track) {
-    manualUrlTrack = track;
-    manualUrlInput = "";
-    manualUrlError = "";
-  }
+  // Handler for inline manual URL submissions from ScanRow
+  async function handleInlineManualUrl(event) {
+    const { path, url } = event.detail;
 
-  function closeManualUrl() {
-    // Remove current track from failedMatches queue
-    if (manualUrlTrack) {
-      failedMatches = failedMatches.filter(
-        (t) => t.path !== manualUrlTrack.path
-      );
-    }
-
-    manualUrlTrack = null;
-    manualUrlInput = "";
-    manualUrlError = "";
-
-    // Show next failed track if any remain
-    if (failedMatches.length > 0) {
-      setTimeout(() => promptManualUrl(failedMatches[0]), 100);
-    }
-  }
-
-  // Handler for ManualUrlModal submit event
-  async function handleManualUrlSubmit(event) {
-    const url = event.detail;
-    manualUrlInput = url;
-    await submitManualUrl();
-  }
-
-  async function submitManualUrl() {
-    const url = manualUrlInput.trim();
-
-    // Validate URL format
-    const isValid =
-      url.includes("tidal.com/") || url.includes("soundcloud.com/");
-    if (!isValid) {
-      manualUrlError = "URL invalide. Utilisez une URL Tidal ou SoundCloud.";
-      return;
-    }
-
-    manualUrlError = "";
+    // Update status to downloading
+    downloadStatus = { ...downloadStatus, [path]: "downloading" };
     scanMessage = "Téléchargement en cours...";
 
     try {
-      // Use dedicated manual URL download function
-      const result = await downloadWithUrl(manualUrlTrack.path, url, true);
+      const result = await downloadWithUrl(path, url, true);
 
       if (result && result.new_path) {
         // Check if durations match
@@ -496,7 +450,10 @@
           scanResults = scanResults.filter(
             (s) => s.path !== result.original_path
           );
-          filter = "downloaded"; // Switch to downloaded view
+
+          // Clear the no-match status
+          downloadStatus = { ...downloadStatus, [path]: "done" };
+          filter = "downloaded";
           scanMessage = "Téléchargé avec succès.";
         } else {
           // Add to review queue for duration mismatch
@@ -510,16 +467,17 @@
               mismatch: true,
             },
           ];
+          downloadStatus = { ...downloadStatus, [path]: "done" };
           scanMessage = "Téléchargé - vérifiez la durée.";
         }
       } else {
+        downloadStatus = { ...downloadStatus, [path]: "no-match" };
         scanMessage = "Échec du téléchargement.";
       }
-
-      closeManualUrl();
     } catch (err) {
       console.error(err);
-      manualUrlError = err?.message || "Échec du téléchargement";
+      downloadStatus = { ...downloadStatus, [path]: "no-match" };
+      scanMessage = err?.message || "Échec du téléchargement";
     }
   }
 
@@ -542,6 +500,8 @@
       results={scanResults}
       active={filter}
       downloadedCount={downloadedItems.length}
+      reviewCount={reviewQueue.length}
+      {noMatchCount}
       on:filter={(e) => (filter = e.detail)}
     />
     <div
@@ -580,53 +540,50 @@
       {/if}
     {/if}
 
-    {#if reviewQueue.length}
-      <div class="panel review-block">
-        <div class="panel-head" style="margin-bottom:6px;">
-          <h2>Vérifier les durées</h2>
-          <span class="badge">{reviewQueue.length}</span>
+    <!-- Review queue - only show when review filter is active -->
+    {#if filter === "review" && reviewQueue.length > 0}
+      <div class="scan-table">
+        <div class="scan-row head">
+          <div>Durées</div>
+          <div style="grid-column: span 2;">Ancienne</div>
+          <div style="grid-column: span 2;">Nouvelle</div>
+          <div>Actions</div>
         </div>
-        <div class="review-list">
-          {#each reviewQueue as item}
-            <div class="review-card">
-              <div class="review-meta">
-                <div>
-                  Durée originale : {item.original_duration
-                    ? item.original_duration.toFixed(1) + "s"
-                    : "n/a"}
-                </div>
-                <div>
-                  Nouvelle : {item.new_duration
-                    ? item.new_duration.toFixed(1) + "s"
-                    : "n/a"}
-                </div>
-                {#if item.mismatch}
-                  <div class="warn">Durées différentes</div>
-                {/if}
-              </div>
-              <div class="players">
-                <div>
-                  <p class="muted">Ancienne</p>
-                  <audio controls src={item.origUrl}></audio>
-                </div>
-                <div>
-                  <p class="muted">Nouvelle (SoundCloud)</p>
-                  <audio controls src={item.newUrl}></audio>
-                </div>
-              </div>
-              <div class="actions" style="gap:10px;">
-                <button
-                  class="btn primary"
-                  on:click={() => acceptReplacement(item)}>Accepter</button
-                >
-                <button
-                  class="btn ghost"
-                  on:click={() => ignoreReplacement(item)}>Ignorer</button
-                >
-              </div>
+        {#each reviewQueue as item}
+          <div class="scan-row review-row">
+            <div class="duration-info">
+              <span class="warn"
+                >{item.original_duration?.toFixed(1) || "?"}s → {item.new_duration?.toFixed(
+                  1
+                ) || "?"}s</span
+              >
             </div>
-          {/each}
-        </div>
+            <div style="grid-column: span 2;">
+              <audio
+                controls
+                src={item.origUrl}
+                style="width: 100%; max-width: 200px;"
+              ></audio>
+            </div>
+            <div style="grid-column: span 2;">
+              <audio
+                controls
+                src={item.newUrl}
+                style="width: 100%; max-width: 200px;"
+              ></audio>
+            </div>
+            <div class="actions actions-inline">
+              <button
+                class="btn mini primary"
+                on:click={() => acceptReplacement(item)}>Accepter</button
+              >
+              <button
+                class="btn mini ghost"
+                on:click={() => ignoreReplacement(item)}>Ignorer</button
+              >
+            </div>
+          </div>
+        {/each}
       </div>
     {/if}
 
@@ -648,6 +605,7 @@
           on:reveal={(e) => reveal(e.detail)}
           on:spectrum={(e) => spectrum(e.detail)}
           on:redownload={handleSingleRedownload}
+          on:manualUrl={handleInlineManualUrl}
         />
       {/each}
     </div>
@@ -659,15 +617,6 @@
     trackCount={redownloadTargets.length}
     on:cancel={cancelRedownload}
     on:start={executeRedownload}
-  />
-
-  <!-- Manual URL Input Modal -->
-  <ManualUrlModal
-    track={manualUrlTrack}
-    error={manualUrlError}
-    on:close={closeManualUrl}
-    on:error={(e) => (manualUrlError = e.detail)}
-    on:submit={handleManualUrlSubmit}
   />
 </section>
 
@@ -701,5 +650,14 @@
     to {
       transform: rotate(360deg);
     }
+  }
+
+  .review-row {
+    background: rgba(59, 130, 246, 0.1) !important;
+    border-left: 2px solid #3b82f6 !important;
+  }
+
+  .duration-info {
+    font-size: 13px;
   }
 </style>

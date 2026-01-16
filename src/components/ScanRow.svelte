@@ -9,14 +9,18 @@
     AlertTriangle,
     Cog,
     RefreshCw,
+    Send,
   } from "lucide-svelte";
 
   export let item;
   export let spectrumUrl;
   export let loading = false;
-  export let downloadStatus = null; // 'pending' | 'downloading' | 'done' | 'error' | null
+  export let downloadStatus = null; // 'pending' | 'downloading' | 'done' | 'error' | 'no-match' | null
 
   const dispatch = createEventDispatcher();
+
+  let manualUrl = "";
+  let submitting = false;
 
   function getStatusIcon(status) {
     if (status?.startsWith("retry-")) return RefreshCw;
@@ -42,9 +46,32 @@
     if (status === "queue-full") return "queue-full";
     return status;
   }
+
+  function submitManualUrl() {
+    const url = manualUrl.trim();
+    if (!url) return;
+
+    // Validate URL format
+    const isValid =
+      url.includes("tidal.com/") || url.includes("soundcloud.com/");
+    if (!isValid) {
+      return; // Invalid URL, don't submit
+    }
+
+    submitting = true;
+    dispatch("manualUrl", { path: item.path, url });
+  }
+
+  // Reset submitting state when downloadStatus changes
+  $: if (downloadStatus !== "no-match") {
+    submitting = false;
+    manualUrl = "";
+  }
 </script>
 
-<div class={`scan-row ${item.status}`}>
+<div
+  class={`scan-row ${item.status} ${downloadStatus === "no-match" ? "no-match-row" : ""}`}
+>
   <div class="status-dot">
     {#if downloadStatus}
       <span
@@ -73,22 +100,54 @@
   <div class="name">{item.name}</div>
   <div class="path" title={item.path}>{item.path}</div>
   <div class="actions actions-inline">
-    {#if item.status === "bad" && !downloadStatus}
+    {#if downloadStatus === "no-match"}
+      <!-- Inline URL input for failed matches -->
+      <div class="inline-url-form">
+        <input
+          type="text"
+          class="url-input"
+          placeholder="URL Tidal ou SoundCloud..."
+          bind:value={manualUrl}
+          disabled={submitting}
+          on:keydown={(e) => e.key === "Enter" && submitManualUrl()}
+        />
+        <div class="btn-row">
+          <button
+            class="btn mini primary"
+            on:click={submitManualUrl}
+            disabled={submitting || !manualUrl.trim()}
+            title="Télécharger avec cette URL"
+          >
+            {#if submitting}
+              <Loader size={14} class="spin" />
+            {:else}
+              <Send size={14} />
+            {/if}
+          </button>
+          <button
+            class="btn mini ghost"
+            on:click={() => dispatch("reveal", item.path)}>Voir</button
+          >
+        </div>
+      </div>
+    {:else}
+      {#if item.status === "bad" && !downloadStatus}
+        <button
+          class="btn mini primary"
+          on:click={() => dispatch("redownload", item)}
+          title="Retélécharger ce fichier"
+        >
+          <RefreshCw size={14} />
+        </button>
+      {/if}
       <button
-        class="btn mini primary"
-        on:click={() => dispatch("redownload", item)}
-        title="Retélécharger ce fichier"
+        class="btn mini ghost"
+        on:click={() => dispatch("reveal", item.path)}>Voir</button
       >
-        <RefreshCw size={14} />
-      </button>
+      <button class="btn mini" on:click={() => dispatch("spectrum", item.path)}
+        >Spectre</button
+      >
     {/if}
-    <button
-      class="btn mini ghost"
-      on:click={() => dispatch("reveal", item.path)}>Voir</button
-    >
-    <button class="btn mini" on:click={() => dispatch("spectrum", item.path)}
-      >Spectre</button
-    >
   </div>
   {#if loading || spectrumUrl}
     <div class="spectrum" style="grid-column: 1 / -1;">
@@ -121,5 +180,46 @@
     to {
       transform: rotate(360deg);
     }
+  }
+
+  .no-match-row {
+    background: rgba(245, 158, 11, 0.1) !important;
+    border-left: 2px solid #f59e0b !important;
+  }
+
+  /* When in no-match state, make the row display differently */
+  .no-match-row .actions {
+    grid-column: span 2;
+  }
+
+  .inline-url-form {
+    display: flex;
+    gap: 6px;
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .url-input {
+    flex: 1;
+    min-width: 150px;
+    padding: 6px 10px;
+    border: 1px solid rgba(57, 255, 20, 0.4);
+    background: var(--panel, #000);
+    color: var(--text, #fff);
+    font-size: 12px;
+    outline: none;
+  }
+
+  .url-input:focus {
+    border-color: var(--accent, #39ff14);
+  }
+
+  .url-input::placeholder {
+    color: var(--muted, #888);
+  }
+
+  .btn-row {
+    display: flex;
+    gap: 6px;
   }
 </style>

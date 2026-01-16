@@ -23,11 +23,7 @@ use cache::{cache_path, load_cache, save_cache};
 pub use settings::{get_settings, load_settings, save_settings};
 use types::{DownloadResult, QueueStats, RedownloadResult, ScanResult};
 
-/// Core API URL - uses localhost in dev mode, production URL in release builds
-#[cfg(debug_assertions)]
-const CORE_API_URL: &str = "http://localhost:3001";
-
-#[cfg(not(debug_assertions))]
+/// Core API URL - always uses production server
 const CORE_API_URL: &str = "https://keson.api.acab.love";
 
 #[tauri::command]
@@ -82,25 +78,36 @@ async fn download_link(
 
         let path = Path::new(&res.saved_to);
         if path.exists() {
-            let analysis = analyze_with_wmb_single(
-                path,
-                &handle, // Pass AppHandle
-                settings_analysis.min_bitrate,
-                settings_analysis.analysis_window_seconds,
-                settings_analysis.cache_enabled,
-                &cache,
-            );
+            // Skip analysis for FLAC files - they are always lossless
+            let ext = path.extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_lowercase());
+            
+            if ext.as_deref() == Some("flac") {
+                res.quality = "Lossless".to_string();
+                res.bitrate = None; // Don't show bitrate for lossless
+            } else {
+                // Analyze lossy formats (m4a, mp3, etc.)
+                let analysis = analyze_with_wmb_single(
+                    path,
+                    &handle, // Pass AppHandle
+                    settings_analysis.min_bitrate,
+                    settings_analysis.analysis_window_seconds,
+                    settings_analysis.cache_enabled,
+                    &cache,
+                );
 
-            if let Ok((est, _lossless, note, _status)) = analysis {
-                if let Some(bitrate) = est {
-                    res.bitrate = Some(bitrate);
-                    res.quality = format!("{} kbps", bitrate);
-                }
-                if let Some(n) = note {
-                    if !res.warning.is_empty() {
-                        res.warning.push_str(" | ");
+                if let Ok((est, _lossless, note, _status)) = analysis {
+                    if let Some(bitrate) = est {
+                        res.bitrate = Some(bitrate);
+                        res.quality = format!("{} kbps", bitrate);
                     }
-                    res.warning.push_str(&n);
+                    if let Some(n) = note {
+                        if !res.warning.is_empty() {
+                            res.warning.push_str(" | ");
+                        }
+                        res.warning.push_str(&n);
+                    }
                 }
             }
             
@@ -428,6 +435,35 @@ async fn reveal_in_folder(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn open_file(path: String) -> Result<(), String> {
+    if !Path::new(&path).exists() {
+        return Err("Fichier introuvable".into());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(&path)
+            .status()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("cmd")
+            .args(["/c", "start", "", &path.replace('/', "\\")])
+            .status()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("xdg-open")
+            .arg(&path)
+            .status()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 async fn open_spectrum(path: String, app: tauri::AppHandle) -> Result<Vec<u8>, String> {
     let src = Path::new(&path);
     if !src.exists() {
@@ -678,12 +714,14 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
             queue_stats,
             download_link,
             scan_folder,
             reveal_in_folder,
+            open_file,
             open_spectrum,
             get_settings,
             save_settings,

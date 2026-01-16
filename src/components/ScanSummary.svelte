@@ -1,10 +1,12 @@
 <script>
   import { createEventDispatcher } from "svelte";
-  import { Check } from "lucide-svelte";
+  import { Check, AlertCircle, HelpCircle } from "lucide-svelte";
 
   export let results = [];
   export let active = "bad";
   export let downloadedCount = 0;
+  export let noMatchCount = 0;
+  export let reviewCount = 0;
 
   const dispatch = createEventDispatcher();
 
@@ -45,6 +47,22 @@
       <Check size={16} /> Downloaded {downloadedCount}
     </button>
   {/if}
+  {#if reviewCount > 0}
+    <button
+      class={`pill review ${active === "review" ? "active" : ""}`}
+      on:click={() => setFilter("review")}
+    >
+      <HelpCircle size={16} /> À vérifier {reviewCount}
+    </button>
+  {/if}
+  {#if noMatchCount > 0}
+    <button
+      class={`pill nomatch ${active === "no-match" ? "active" : ""}`}
+      on:click={() => setFilter("no-match")}
+    >
+      <AlertCircle size={16} /> Non trouvés {noMatchCount}
+    </button>
+  {/if}
   <button
     class={`pill ${active === "error" ? "active" : ""}`}
     on:click={() => setFilter("error")}
@@ -73,5 +91,19 @@
   }
   .pill.success.active {
     outline-color: #10b981;
+  }
+  .pill.review {
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    color: white;
+  }
+  .pill.review.active {
+    outline-color: #3b82f6;
+  }
+  .pill.nomatch {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    color: white;
+  }
+  .pill.nomatch.active {
+    outline-color: #f59e0b;
   }
 </style>

@@ -1,9 +1,17 @@
 <script>
   import { invoke, convertFileSrc } from "@tauri-apps/api/core";
   import { downloadDir } from "@tauri-apps/api/path";
+  import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
   import { isDesktop } from "../services/scanService";
-  import { Music, Clock, Folder } from "lucide-svelte";
+  import {
+    Music,
+    Clock,
+    Folder,
+    Play,
+    FolderOpen,
+    FolderSearch,
+  } from "lucide-svelte";
 
   // Convert cover path to displayable URL (handles local file paths)
   function getCoverSrc(coverUrl) {
@@ -99,6 +107,41 @@
       await handleDownload();
     }
   }
+
+  async function openFile(path) {
+    if (!isDesktop || !path) return;
+    try {
+      await invoke("open_file", { path });
+    } catch (e) {
+      console.error("Failed to open file", e);
+    }
+  }
+
+  async function openFolder(path) {
+    if (!isDesktop || !path) return;
+    try {
+      await invoke("reveal_in_folder", { path });
+    } catch (e) {
+      console.error("Failed to open folder", e);
+    }
+  }
+
+  async function pickOutputDir() {
+    if (!isDesktop) return;
+    try {
+      const selected = await openDialog({
+        directory: true,
+        multiple: false,
+        defaultPath: outputDir || undefined,
+        title: "Choisir le dossier de téléchargement",
+      });
+      if (selected) {
+        outputDir = selected;
+      }
+    } catch (e) {
+      console.error("Failed to pick folder", e);
+    }
+  }
 </script>
 
 <section class="panel">
@@ -114,7 +157,18 @@
     </label>
     <label>
       Dossier de sortie (optionnel)
-      <input type="text" placeholder={outputDir} bind:value={outputDir} />
+      <div class="input-with-button">
+        <input type="text" placeholder={outputDir} bind:value={outputDir} />
+        {#if isDesktop}
+          <button
+            class="btn icon-only"
+            title="Choisir un dossier"
+            on:click={pickOutputDir}
+          >
+            <FolderSearch size={16} />
+          </button>
+        {/if}
+      </div>
     </label>
     <button class="btn primary" on:click={handleDownload} disabled={busy}>
       {#if busy}Charges...{:else}DOWNLOAD{/if}
@@ -150,12 +204,14 @@
               />
             {:else}
               <div
-                style="width:80px; height:80px; background:#333; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#666; font-size:10px;"
+                style="width:80px; height:80px; background:#333; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#666; font-size:10px; flex-shrink:0;"
               >
                 No Cover
               </div>
             {/if}
-            <div style="flex:1; width: 100%; display:grid; gap:4px;">
+            <div
+              style="flex:1; width: 100%; min-width: 0; display:grid; gap:4px;"
+            >
               <div class="card-top">
                 <span class="pill">#{downloads.length - idx}</span>
                 {#if item.quality}<span class="pill ghost">{item.quality}</span
@@ -163,12 +219,18 @@
                 {#if item.source}<span class="pill ghost">{item.source}</span
                   >{/if}
               </div>
-              <h3 style="word-break:break-word;">{item.title || "Track"}</h3>
+              <h3 class="line-clamp-2" title={item.title || "Track"}>
+                {item.title || "Track"}
+              </h3>
               {#if item.artist}
-                <p class="muted">Artiste : {item.artist}</p>
+                <p class="muted line-clamp-1" title={item.artist}>
+                  Artiste : {item.artist}
+                </p>
               {/if}
               {#if item.album}
-                <p class="muted">Album : {item.album}</p>
+                <p class="muted line-clamp-1" title={item.album}>
+                  Album : {item.album}
+                </p>
               {/if}
               <div style="display: flex; gap: 12px; flex-wrap: wrap;">
                 {#if item.bitrate}
@@ -193,10 +255,31 @@
                 <p class="warn">{item.warning}</p>
               {/if}
               {#if item.saved_to}
-                <p class="muted" style="font-size:11px; word-break:break-all;">
-                  <Folder size={12} />
+                <div class="muted path-text" title={item.saved_to}>
+                  <Folder
+                    size={12}
+                    style="display:inline; vertical-align:middle; margin-right:4px;"
+                  />
                   {item.saved_to}
-                </p>
+                </div>
+                {#if isDesktop}
+                  <div class="btn-group-mini">
+                    <button
+                      class="btn icon-only"
+                      title="Ouvrir le fichier"
+                      on:click={() => openFile(item.saved_to)}
+                    >
+                      <Play size={14} />
+                    </button>
+                    <button
+                      class="btn icon-only"
+                      title="Ouvrir le dossier"
+                      on:click={() => openFolder(item.saved_to)}
+                    >
+                      <FolderOpen size={14} />
+                    </button>
+                  </div>
+                {/if}
               {/if}
             </div>
           </div>
@@ -240,12 +323,14 @@
   .card-grid {
     display: grid;
     gap: 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   }
   .card {
     background: var(--surface-2);
     padding: 1rem;
     border-radius: 8px;
     border: 1px solid var(--border);
+    overflow: hidden;
   }
   .card-top {
     display: flex;
@@ -269,6 +354,7 @@
     border-radius: 12px;
     font-size: 0.75rem;
     font-weight: bold;
+    white-space: nowrap;
   }
   .pill.ghost {
     background: transparent;
@@ -287,5 +373,72 @@
   }
   .btn.retry:hover {
     background: linear-gradient(135deg, #ffb74d, #ff9800);
+  }
+
+  /* Utility classes for text truncation */
+  .line-clamp-1 {
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    word-break: break-all;
+  }
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    word-break: break-word;
+  }
+  .path-text {
+    font-size: 11px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    word-break: break-all;
+  }
+
+  .btn-group-mini {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+
+  .btn.icon-only {
+    padding: 6px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+  }
+
+  .btn.icon-only:hover {
+    background: var(--surface-3);
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+
+  .input-with-button {
+    display: flex;
+    gap: 0.5rem;
+    align-items: stretch;
+  }
+  .input-with-button input {
+    flex: 1;
+  }
+  .input-with-button .btn.icon-only {
+    padding: 12px;
   }
 </style>
