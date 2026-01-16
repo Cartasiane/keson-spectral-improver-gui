@@ -9,7 +9,7 @@ use num_cpus;
 use rayon::iter::IntoParallelRefIterator;
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
-use std::collections::HashMap;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -19,12 +19,16 @@ use tauri::path::BaseDirectory;
 use tauri::{async_runtime, Emitter, Manager};
 use walkdir::WalkDir;
 
-use audio::{analyze_with_wmb_single, extract_metadata_from_file, is_audio, probe_bitrate, probe_duration};
+use audio::{analyze_with_wmb_single, analyze_file_quality, extract_metadata_from_file, is_audio, probe_bitrate, probe_duration};
 use cache::{cache_path, load_cache, save_cache};
 pub use settings::{get_settings, load_settings, save_settings};
-use types::{CacheEntry, DownloadResult, QueueStats, RedownloadResult, ScanResult};
+use types::{DownloadResult, QueueStats, RedownloadResult, ScanResult};
 
-/// Hardcoded Core API URL - all clients use this endpoint
+/// Core API URL - uses localhost in dev mode, production URL in release builds
+#[cfg(debug_assertions)]
+const CORE_API_URL: &str = "http://localhost:3001";
+
+#[cfg(not(debug_assertions))]
 const CORE_API_URL: &str = "https://keson.api.acab.love";
 
 #[tauri::command]
@@ -111,73 +115,7 @@ async fn download_link(
     Ok(analysis_result?)
 }
 
-fn download_local(url: &str, out_dir: &str) -> Result<DownloadResult, String> {
-    let script = r#"
-      const fs = require('fs');
-      const path = require('path');
-      const core = require('../keson-spectral-improver-core');
-      const url = process.argv[2];
-      const destDir = process.argv[3];
-      
-      (async () => {
-        const res = await core.downloadTrack(url);
-        const src = res.path;
-        if (!src) throw new Error('No file path returned by core');
-        
-        const filename = res.filename || path.basename(src);
-        const targetDir = destDir || '.';
-        fs.mkdirSync(targetDir, { recursive: true });
-        const dest = path.join(targetDir, filename);
-        
-        if (src !== dest) fs.renameSync(src, dest);
-        
-        const title = (res.metadata && (res.metadata.title || res.metadata.name)) || filename;
-        const quality = res.metadata && (res.metadata.bitrate || res.metadata.quality || '');
-        
-        console.log(JSON.stringify({ saved_to: dest, title, quality }));
-      })().catch((err) => {
-        console.error(err && err.stack ? err.stack : String(err));
-        process.exit(1);
-      });
-    "#;
 
-    let output = Command::new("node")
-        .arg("-e")
-        .arg(script)
-        .arg(url)
-        .arg(out_dir)
-        .current_dir("../")
-        .output()
-        .map_err(|e| format!("Node exec failed: {e}"))?;
-
-    if !output.status.success() {
-        return Err(format!(
-            "Téléchargement échoué: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-
-    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|e| {
-        format!(
-            "Réponse core invalide: {e}: {}",
-            String::from_utf8_lossy(&output.stdout)
-        )
-    })?;
-
-    Ok(DownloadResult {
-        title: parsed.get("title").and_then(|v| v.as_str()).unwrap_or("Track").to_string(),
-        artist: None,
-        album: None,
-        duration: None,
-        bitrate: parsed.get("quality").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()),
-        source: None,
-        cover_url: None,
-        caption: url.to_string(),
-        quality: parsed.get("quality").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        warning: String::new(),
-        saved_to: parsed.get("saved_to").and_then(|v| v.as_str()).unwrap_or(out_dir).to_string(),
-    })
-}
 
 fn download_via_api(
     url: &str,
@@ -249,11 +187,15 @@ fn download_via_api(
 
     let metadata = body.get("metadata");
     
-    let quality = body.get("quality")
-        .and_then(|q| q.get("estimated_bitrate"))
-        .map(|v| v.to_string())
-        .or_else(|| body.get("quality").and_then(|q| q.get("estimated_bitrate_numeric")).map(|v| v.to_string()))
-        .unwrap_or_else(|| "Unknown".to_string());
+    // Analyze quality locally using whatsmybitrate (same as Quality tab)
+    let quality_result = analyze_file_quality(&dest_path);
+    let (quality, analyzed_bitrate) = match quality_result {
+        Ok(result) => (result.quality_string, result.bitrate),
+        Err(e) => {
+            println!("[download] Quality analysis failed: {}", e);
+            ("Unknown".to_string(), None)
+        }
+    };
 
     let title = metadata
         .and_then(|m| m.get("title"))
@@ -275,20 +217,29 @@ fn download_via_api(
         .and_then(|m| m.get("duration"))
         .and_then(|v| v.as_f64());
 
-    let bitrate = metadata
-        .and_then(|m| m.get("bitrate"))
-        .and_then(|v| v.as_u64())
-        .map(|v| v as u32);
+    let bitrate = analyzed_bitrate.or_else(|| {
+        metadata
+            .and_then(|m| m.get("bitrate"))
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u32)
+    });
 
     let source = metadata
         .and_then(|m| m.get("source"))
         .and_then(|s| s.as_str())
         .map(|s| s.to_string());
 
-    let cover_url = metadata
-        .and_then(|m| m.get("thumbnail"))
-        .and_then(|s| s.as_str())
-        .map(|s| s.to_string());
+    // Try to extract embedded cover from the downloaded file
+    let cover_url = extract_embedded_cover(&dest_path.to_string_lossy())
+        .ok()
+        .flatten()
+        .or_else(|| {
+            // Fallback to metadata thumbnail if embedded extraction fails
+            metadata
+                .and_then(|m| m.get("thumbnail"))
+                .and_then(|s| s.as_str())
+                .map(|s| s.to_string())
+        });
 
     Ok(DownloadResult {
         title,
@@ -303,6 +254,43 @@ fn download_via_api(
         warning: String::new(),
         saved_to: dest_path.to_string_lossy().to_string(),
     })
+}
+
+/// Extract embedded cover from audio file using ffmpeg (helper function, not a command)
+fn extract_embedded_cover(audio_path: &str) -> Result<Option<String>, String> {
+    let path = PathBuf::from(audio_path);
+    if !path.exists() {
+        return Err(format!("File not found: {}", audio_path));
+    }
+
+    let temp_dir = std::env::temp_dir();
+    let hash = format!("{:x}", md5::compute(audio_path));
+    let output_path = temp_dir.join(format!("keson-cover-{}.jpg", hash));
+
+    if output_path.exists() {
+        return Ok(Some(output_path.to_string_lossy().to_string()));
+    }
+
+    let status = Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-i", audio_path,
+            "-an",
+            "-vcodec", "copy",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
+
+    if !status.status.success() {
+        return Ok(None);
+    }
+
+    if output_path.exists() {
+        Ok(Some(output_path.to_string_lossy().to_string()))
+    } else {
+        Ok(None)
+    }
 }
 
 #[tauri::command]
@@ -575,25 +563,73 @@ async fn register_client(invite_code: String, app: tauri::AppHandle) -> Result<(
 }
 
 /// Check if client is registered and get auth status
+/// Validates token with server if present
 #[tauri::command]
 async fn check_auth_status(app: tauri::AppHandle) -> Result<AuthStatus, String> {
     let settings = load_settings(&app);
     
-    // If we have a token, we're registered
-    let registered = settings.client_token
-        .as_ref()
-        .map(|t| !t.is_empty())
-        .unwrap_or(false);
-    
-    if registered {
-        return Ok(AuthStatus {
-            registered: true,
-            invite_required: false,
-            slots_remaining: None,
-        });
+    // If we have a token, validate it with the server
+    if let Some(token) = settings.client_token.as_ref().filter(|t| !t.is_empty()) {
+        let token_clone = token.clone();
+        
+        // Try to validate - returns Some(true) if valid, Some(false) if explicitly rejected (401), None if unreachable
+        let validation_result = tauri::async_runtime::spawn_blocking(move || {
+            let client = reqwest::blocking::Client::builder()
+                .timeout(std::time::Duration::from_secs(10))
+                .build()
+                .ok()?;
+            
+            // Use /auth/validate endpoint to check if token is valid
+            match client
+                .get(format!("{}/auth/validate", CORE_API_URL))
+                .header("X-Client-Token", &token_clone)
+                .send() 
+            {
+                Ok(resp) => {
+                    if resp.status().is_success() {
+                        Some(true)  // Token is valid
+                    } else if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+                        Some(false)  // Token explicitly rejected
+                    } else {
+                        None  // Other error, treat as unreachable
+                    }
+                }
+                Err(_) => None  // Network error, server unreachable
+            }
+        })
+        .await
+        .ok()
+        .flatten();
+        
+        match validation_result {
+            Some(true) => {
+                // Token is valid
+                return Ok(AuthStatus {
+                    registered: true,
+                    invite_required: false,
+                    slots_remaining: None,
+                });
+            }
+            Some(false) => {
+                // Token explicitly invalid (401) - clear it
+                println!("[auth] Token rejected by server (401), clearing token");
+                let mut new_settings = settings.clone();
+                new_settings.client_token = None;
+                let _ = save_settings(app.clone(), new_settings);
+            }
+            None => {
+                // Server unreachable - assume token is still valid, don't clear it
+                println!("[auth] Server unreachable, assuming token is valid");
+                return Ok(AuthStatus {
+                    registered: true,
+                    invite_required: false,
+                    slots_remaining: None,
+                });
+            }
+        }
     }
     
-    // Check with server for invite status
+    // No token or invalid token - check with server for invite status
     let result = tauri::async_runtime::spawn_blocking(move || {
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(10))

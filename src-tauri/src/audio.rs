@@ -262,3 +262,60 @@ print(json.dumps(af.to_dict()))
 
     Ok((est, lossless, err, status))
 }
+
+/// Simple quality analysis result for single files
+#[derive(Debug, Clone)]
+pub struct QualityAnalysisResult {
+    pub bitrate: Option<u32>,
+    pub is_lossless: Option<bool>,
+    pub quality_string: String,
+    pub error: Option<String>,
+}
+
+/// Analyze a single file's quality without caching (for downloads)
+/// Returns bitrate, lossless flag, and a quality display string
+pub fn analyze_file_quality(path: &Path) -> Result<QualityAnalysisResult, String> {
+    let exe_dir = std::env::current_exe()
+        .map_err(|e| format!("Failed to get exe dir: {}", e))?
+        .parent()
+        .ok_or("No parent dir")?
+        .to_path_buf();
+    
+    let vendor_candidates = [
+        exe_dir.join("../vendor/whatsmybitrate"),
+        exe_dir.join("vendor/whatsmybitrate"),
+        PathBuf::from("vendor/whatsmybitrate"),
+        PathBuf::from("../vendor/whatsmybitrate"),
+    ];
+    
+    let vendor_dir = vendor_candidates.iter()
+        .find(|p| p.exists())
+        .cloned()
+        .ok_or("whatsmybitrate vendor directory not found")?;
+
+    // Use a dummy cache since we don't need caching for single downloads
+    let dummy_cache = Arc::new(Mutex::new(HashMap::new()));
+    
+    let (bitrate, is_lossless, error, _status) = analyze_with_wmb_single(
+        path,
+        &vendor_dir,
+        0, // min_kbps - we don't filter, just analyze
+        30, // analysis_window seconds
+        false, // cache_enabled
+        &dummy_cache,
+    )?;
+    
+    // Build quality display string
+    let quality_string = match (bitrate, is_lossless) {
+        (Some(br), Some(true)) => format!("{} kbps (Lossless)", br),
+        (Some(br), _) => format!("{} kbps", br),
+        (None, _) => "Unknown".to_string(),
+    };
+    
+    Ok(QualityAnalysisResult {
+        bitrate,
+        is_lossless,
+        quality_string,
+        error,
+    })
+}

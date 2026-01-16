@@ -1,9 +1,19 @@
 <script>
-  import { invoke } from "@tauri-apps/api/core";
+  import { invoke, convertFileSrc } from "@tauri-apps/api/core";
   import { downloadDir } from "@tauri-apps/api/path";
   import { onMount } from "svelte";
   import { isDesktop } from "../services/scanService";
   import { Music, Clock, Folder } from "lucide-svelte";
+
+  // Convert cover path to displayable URL (handles local file paths)
+  function getCoverSrc(coverUrl) {
+    if (!coverUrl) return null;
+    // If it's a local file path, convert it
+    if (coverUrl.startsWith("/") && isDesktop) {
+      return convertFileSrc(coverUrl);
+    }
+    return coverUrl;
+  }
 
   let url = "";
   let message = "";
@@ -132,9 +142,9 @@
       {#each downloads as item, idx}
         <article class="card">
           <div style="display:flex; gap:12px; align-items:flex-start;">
-            {#if item.cover_url}
+            {#if getCoverSrc(item.cover_url)}
               <img
-                src={item.cover_url}
+                src={getCoverSrc(item.cover_url)}
                 alt="Cover"
                 style="width:80px; height:80px; object-fit:cover; border-radius:6px; flex-shrink:0;"
               />
