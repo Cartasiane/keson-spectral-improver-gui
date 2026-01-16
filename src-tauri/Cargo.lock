@@ -2165,7 +2165,7 @@ dependencies = [
 
 [[package]]
 name = "keson-spectral-improver-gui"
-version = "0.9.2"
+version = "0.9.4"
 dependencies = [
  "base64 0.22.1",
  "hex",
