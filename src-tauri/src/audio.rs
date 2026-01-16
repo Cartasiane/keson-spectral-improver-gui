@@ -7,9 +7,33 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+use tauri::Manager;
 
 use crate::types::{CacheEntry, ExtractedMetadata};
 use crate::cache::enforce_cache_limit;
+
+// Helper to get resource path
+pub fn get_resource_path(app: &tauri::AppHandle, name: &str) -> Option<PathBuf> {
+    app.path().resource_dir().ok().map(|p| p.join(name))
+}
+
+// Helper to get environment with bundled binaries in PATH
+pub fn get_env_with_resources(app: &tauri::AppHandle) -> HashMap<String, String> {
+    let mut envs = std::env::vars().collect::<HashMap<_, _>>();
+    
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        if let Ok(current_path) = std::env::var("PATH") {
+            // Prepend resource dir to PATH so our bundled binaries take precedence
+            #[cfg(unix)]
+            let new_path = format!("{}:{}", resource_dir.to_string_lossy(), current_path);
+            #[cfg(windows)]
+            let new_path = format!("{};{}", resource_dir.to_string_lossy(), current_path);
+            
+            envs.insert("PATH".to_string(), new_path);
+        }
+    }
+    envs
+}
 
 /// Check if a file is an audio file based on extension
 pub fn is_audio(path: &Path) -> bool {
@@ -42,8 +66,13 @@ pub fn file_hash(path: &Path) -> std::io::Result<String> {
 }
 
 /// Extract metadata from an audio file using ffprobe
-pub fn extract_metadata_from_file(path: &Path) -> ExtractedMetadata {
-    let output = Command::new("ffprobe")
+pub fn extract_metadata_from_file(path: &Path, app: &tauri::AppHandle) -> ExtractedMetadata {
+    // Determine ffprobe command (bundled or system)
+    let ffprobe_cmd = get_resource_path(app, "ffprobe")
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| "ffprobe".to_string());
+
+    let output = Command::new(&ffprobe_cmd)
         .args([
             "-v", "quiet",
             "-print_format", "json",
@@ -93,8 +122,12 @@ pub fn extract_metadata_from_file(path: &Path) -> ExtractedMetadata {
 }
 
 /// Probe duration of an audio file using ffprobe
-pub fn probe_duration(path: &Path) -> Option<f64> {
-    let output = Command::new("ffprobe")
+pub fn probe_duration(path: &Path, app: &tauri::AppHandle) -> Option<f64> {
+    let ffprobe_cmd = get_resource_path(app, "ffprobe")
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| "ffprobe".to_string());
+
+    let output = Command::new(&ffprobe_cmd)
         .args([
             "-v", "error",
             "-show_entries", "format=duration",
@@ -113,17 +146,19 @@ pub fn probe_duration(path: &Path) -> Option<f64> {
 }
 
 /// Probe bitrate using whatsmybitrate
-pub fn probe_bitrate(path: &Path) -> Option<u32> {
+pub fn probe_bitrate(path: &Path, app: &tauri::AppHandle) -> Option<u32> {
     let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
     
+    // Look for wmb vendor dir in resources first, then fallback (for dev)
     let vendor_candidates = [
-        exe_dir.join("../vendor/whatsmybitrate"),
-        exe_dir.join("vendor/whatsmybitrate"),
-        PathBuf::from("vendor/whatsmybitrate"),
-        PathBuf::from("../vendor/whatsmybitrate"),
+        get_resource_path(app, "whatsmybitrate"), // In bundled resources
+        get_resource_path(app, "../vendor/whatsmybitrate"), // Relative in dev?
+        Some(exe_dir.join("../vendor/whatsmybitrate")),
+        Some(exe_dir.join("vendor/whatsmybitrate")),
     ];
     
     let vendor_dir = vendor_candidates.iter()
+        .flatten()
         .find(|p| p.exists())
         .cloned()
         .unwrap_or_else(|| PathBuf::from("vendor/whatsmybitrate"));
@@ -142,8 +177,12 @@ print(json.dumps({{"bitrate": af.to_dict().get("estimated_bitrate_numeric")}}))
         vendor = vendor_dir.display()
     );
 
+    // Prepare env with bundled binaries
+    let envs = get_env_with_resources(app);
+
     let output = Command::new("python3")
         .args(["-c", &script, path.to_str()?])
+        .envs(&envs)
         .output()
         .ok()?;
 
@@ -161,7 +200,7 @@ print(json.dumps({{"bitrate": af.to_dict().get("estimated_bitrate_numeric")}}))
 /// Analyze a single file with whatsmybitrate
 pub fn analyze_with_wmb_single(
     path: &Path,
-    vendor_dir: &Path,
+    app: &tauri::AppHandle, // Added app handle
     min: u32,
     analysis_window: u32,
     cache_enabled: bool,
@@ -188,6 +227,21 @@ pub fn analyze_with_wmb_single(
         }
     }
 
+    let exe_dir = std::env::current_exe().map_err(|e| format!("exe path: {e}"))?.parent().ok_or("no parent")?.to_path_buf();
+
+    // Look for wmb vendor dir
+    let vendor_candidates = [
+        get_resource_path(app, "whatsmybitrate"),
+        Some(exe_dir.join("../vendor/whatsmybitrate")),
+        Some(exe_dir.join("vendor/whatsmybitrate")),
+    ];
+    
+    let vendor_dir = vendor_candidates.iter()
+        .flatten()
+        .find(|p| p.exists())
+        .cloned()
+        .ok_or_else(|| format!("whatsmybitrate vendor directory not found. Checked resource dir and {:?} ", exe_dir))?;
+
     let python = "python3";
     let py_check = Command::new(python)
         .arg("--version")
@@ -212,8 +266,12 @@ print(json.dumps(af.to_dict()))
         window = analysis_window
     );
 
+    // Use bundled env
+    let envs = get_env_with_resources(app);
+
     let output = Command::new(python)
         .args(["-c", &script, path.to_str().unwrap_or_default()])
+        .envs(&envs)
         .output()
         .map_err(|e| format!("python3: {e}"))?;
 
@@ -265,6 +323,7 @@ print(json.dumps(af.to_dict()))
 
 /// Simple quality analysis result for single files
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct QualityAnalysisResult {
     pub bitrate: Option<u32>,
     pub is_lossless: Option<bool>,
@@ -274,31 +333,13 @@ pub struct QualityAnalysisResult {
 
 /// Analyze a single file's quality without caching (for downloads)
 /// Returns bitrate, lossless flag, and a quality display string
-pub fn analyze_file_quality(path: &Path) -> Result<QualityAnalysisResult, String> {
-    let exe_dir = std::env::current_exe()
-        .map_err(|e| format!("Failed to get exe dir: {}", e))?
-        .parent()
-        .ok_or("No parent dir")?
-        .to_path_buf();
-    
-    let vendor_candidates = [
-        exe_dir.join("../vendor/whatsmybitrate"),
-        exe_dir.join("vendor/whatsmybitrate"),
-        PathBuf::from("vendor/whatsmybitrate"),
-        PathBuf::from("../vendor/whatsmybitrate"),
-    ];
-    
-    let vendor_dir = vendor_candidates.iter()
-        .find(|p| p.exists())
-        .cloned()
-        .ok_or("whatsmybitrate vendor directory not found")?;
-
+pub fn analyze_file_quality(path: &Path, app: &tauri::AppHandle) -> Result<QualityAnalysisResult, String> {
     // Use a dummy cache since we don't need caching for single downloads
     let dummy_cache = Arc::new(Mutex::new(HashMap::new()));
     
     let (bitrate, is_lossless, error, _status) = analyze_with_wmb_single(
         path,
-        &vendor_dir,
+        app,
         0, // min_kbps - we don't filter, just analyze
         30, // analysis_window seconds
         false, // cache_enabled

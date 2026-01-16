@@ -3,7 +3,11 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "resources": ["../vendor/whatsmybitrate"],
+    "resources": [
+      "../vendor/whatsmybitrate",
+      "resources/ffmpeg",
+      "resources/ffprobe"
+    ],
     "macOS": {
       "minimumSystemVersion": "10.13"
     },

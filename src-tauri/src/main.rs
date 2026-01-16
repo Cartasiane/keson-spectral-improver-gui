@@ -19,7 +19,7 @@ use tauri::path::BaseDirectory;
 use tauri::{async_runtime, Emitter, Manager};
 use walkdir::WalkDir;
 
-use audio::{analyze_with_wmb_single, analyze_file_quality, extract_metadata_from_file, is_audio, probe_bitrate, probe_duration};
+use audio::{analyze_with_wmb_single, analyze_file_quality, extract_metadata_from_file, get_resource_path, get_env_with_resources, is_audio, probe_bitrate, probe_duration};
 use cache::{cache_path, load_cache, save_cache};
 pub use settings::{get_settings, load_settings, save_settings};
 use types::{DownloadResult, QueueStats, RedownloadResult, ScanResult};
@@ -61,9 +61,10 @@ async fn download_link(
     let url_clone = url.clone();
     let out_dir_clone = out_dir.clone();
     let token_clone = client_token.clone();
+    let app_handle = app.clone(); // Clone app for thread
     
     let download_task_result = async_runtime::spawn_blocking(move || {
-        download_via_api(&url_clone, &out_dir_clone, &token_clone)
+        download_via_api(&url_clone, &out_dir_clone, &token_clone, &app_handle)
     })
     .await
     .map_err(|e| format!("Task failed: {e}"))?;
@@ -74,7 +75,6 @@ async fn download_link(
     let settings_analysis = settings.clone();
     
     let analysis_result = async_runtime::spawn_blocking(move || -> Result<DownloadResult, String> {
-        let vendor = vendor_dir(&handle).map_err(|e| e.to_string())?;
         let cache_path = cache_path(&handle)?;
         let cache = Arc::new(Mutex::new(load_cache(
             &cache_path,
@@ -85,7 +85,7 @@ async fn download_link(
         if path.exists() {
             let analysis = analyze_with_wmb_single(
                 path,
-                &vendor,
+                &handle, // Pass AppHandle
                 settings_analysis.min_bitrate,
                 settings_analysis.analysis_window_seconds,
                 settings_analysis.cache_enabled,
@@ -121,6 +121,7 @@ fn download_via_api(
     url: &str,
     output_dir: &str,
     client_token: &str,
+    app: &tauri::AppHandle,
 ) -> Result<DownloadResult, String> {
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(300))
@@ -188,7 +189,7 @@ fn download_via_api(
     let metadata = body.get("metadata");
     
     // Analyze quality locally using whatsmybitrate (same as Quality tab)
-    let quality_result = analyze_file_quality(&dest_path);
+    let quality_result = analyze_file_quality(&dest_path, app);
     let (quality, analyzed_bitrate) = match quality_result {
         Ok(result) => (result.quality_string, result.bitrate),
         Err(e) => {
@@ -230,7 +231,7 @@ fn download_via_api(
         .map(|s| s.to_string());
 
     // Try to extract embedded cover from the downloaded file
-    let cover_url = extract_embedded_cover(&dest_path.to_string_lossy())
+    let cover_url = extract_embedded_cover(&dest_path.to_string_lossy(), app)
         .ok()
         .flatten()
         .or_else(|| {
@@ -257,7 +258,7 @@ fn download_via_api(
 }
 
 /// Extract embedded cover from audio file using ffmpeg (helper function, not a command)
-fn extract_embedded_cover(audio_path: &str) -> Result<Option<String>, String> {
+fn extract_embedded_cover(audio_path: &str, app: &tauri::AppHandle) -> Result<Option<String>, String> {
     let path = PathBuf::from(audio_path);
     if !path.exists() {
         return Err(format!("File not found: {}", audio_path));
@@ -271,7 +272,12 @@ fn extract_embedded_cover(audio_path: &str) -> Result<Option<String>, String> {
         return Ok(Some(output_path.to_string_lossy().to_string()));
     }
 
-    let status = Command::new("ffmpeg")
+    // Determine ffmpeg command (bundled or system)
+    let ffmpeg_cmd = get_resource_path(app, "ffmpeg")
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| "ffmpeg".to_string());
+
+    let status = Command::new(&ffmpeg_cmd)
         .args([
             "-y",
             "-i", audio_path,
@@ -339,7 +345,6 @@ async fn scan_folder(
             return Ok(Vec::new());
         }
 
-        let vendor = vendor_dir(&handle)?;
         let cache_path = cache_path(&handle)?;
         let cache = Arc::new(Mutex::new(load_cache(
             &cache_path,
@@ -354,7 +359,7 @@ async fn scan_folder(
                 let path = entry.path();
                 let analysis = analyze_with_wmb_single(
                     path,
-                    &vendor,
+                    &handle, // Pass AppHandle
                     min,
                     settings.analysis_window_seconds,
                     settings.cache_enabled,
@@ -430,7 +435,8 @@ async fn open_spectrum(path: String, app: tauri::AppHandle) -> Result<Vec<u8>, S
         return Err("Fichier introuvable".into());
     }
 
-    let vendor = vendor_dir(&app)?;
+    let vendor = get_resource_path(&app, "whatsmybitrate")
+            .ok_or_else(|| "Module 'whatsmybitrate' introuvable dans les ressources".to_string())?;
 
     let python = "python3";
     let py_check = Command::new(python)
@@ -465,8 +471,11 @@ print(af.spectrogram_path or "")
         vendor = vendor.display()
     );
 
+    let envs = get_env_with_resources(&app);
+
     let output = Command::new(python)
         .args(["-c", &script, src.to_str().unwrap_or_default(), &temp_root_str])
+        .envs(&envs)
         .output()
         .map_err(|e| format!("python3: {e}"))?;
 
@@ -495,13 +504,7 @@ Installe-les : pip install -r vendor/whatsmybitrate/requirements.txt"
     Ok(bytes)
 }
 
-fn vendor_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let base = app
-        .path()
-        .resolve("../vendor/whatsmybitrate", BaseDirectory::Resource)
-        .map_err(|e| e.to_string())?;
-    Ok(base)
-}
+
 
 /// Response from auth status check
 #[derive(serde::Serialize)]
@@ -749,7 +752,7 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
 
             println!("[GUI] Redownload Query for: '{}' (source: {}, backup: {})", stem, source, backup);
 
-            let file_metadata = extract_metadata_from_file(&path);
+            let file_metadata = extract_metadata_from_file(&path, &app);
 
             let clean_query = stem
                 .split(" - ")
@@ -849,8 +852,8 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
                                              } else {
                                                  println!("[GUI] Downloaded to: {:?}", dest_path);
                                                  
-                                                 let original_dur = probe_duration(&path);
-                                                 let new_dur = probe_duration(&dest_path);
+                                                 let original_dur = probe_duration(&path, &app);
+                                                 let new_dur = probe_duration(&dest_path, &app);
 
                                                  let tolerance_sec = 2.0;
                                                  let tolerance_pct = 0.05;
@@ -882,7 +885,7 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
                                                      }
                                                  }
 
-                                                 let new_bitrate = probe_bitrate(&dest_path);
+                                                 let new_bitrate = probe_bitrate(&dest_path, &app);
 
                                                  downloaded.push(RedownloadResult {
                                                      original_path: path_str.clone(),
@@ -972,11 +975,11 @@ async fn download_with_url(original_path: String, url: String, backup: bool, app
         println!("[GUI] Downloaded to: {:?}", dest_path);
         
         println!("[GUI] Probing original duration for: {:?}", path);
-        let original_dur = probe_duration(&path).unwrap_or(0.0);
+        let original_dur = probe_duration(&path, &app).unwrap_or(0.0);
         println!("[GUI] Original duration: {}", original_dur);
 
         println!("[GUI] Probing new duration for: {:?}", dest_path);
-        let new_dur = probe_duration(&dest_path).unwrap_or(0.0);
+        let new_dur = probe_duration(&dest_path, &app).unwrap_or(0.0);
         println!("[GUI] New duration: {}", new_dur);
 
         if backup {
@@ -1005,7 +1008,7 @@ async fn download_with_url(original_path: String, url: String, backup: bool, app
         }
 
         let new_file_path = if backup { &path } else { &dest_path };
-        let new_bitrate = probe_bitrate(new_file_path);
+        let new_bitrate = probe_bitrate(new_file_path, &app);
 
         Ok(RedownloadResult {
             original_path,
@@ -1094,38 +1097,6 @@ fn discard_file(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn extract_cover(audio_path: String) -> Result<Option<String>, String> {
-    let path = PathBuf::from(&audio_path);
-    if !path.exists() {
-        return Err(format!("File not found: {}", audio_path));
-    }
-
-    let temp_dir = std::env::temp_dir();
-    let hash = format!("{:x}", md5::compute(&audio_path));
-    let output_path = temp_dir.join(format!("keson-cover-{}.jpg", hash));
-
-    if output_path.exists() {
-        return Ok(Some(output_path.to_string_lossy().to_string()));
-    }
-
-    let status = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-i", &audio_path,
-            "-an",
-            "-vcodec", "copy",
-            output_path.to_string_lossy().as_ref(),
-        ])
-        .output()
-        .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
-
-    if !status.status.success() {
-        return Ok(None);
-    }
-
-    if output_path.exists() {
-        Ok(Some(output_path.to_string_lossy().to_string()))
-    } else {
-        Ok(None)
-    }
+fn extract_cover(audio_path: String, app: tauri::AppHandle) -> Result<Option<String>, String> {
+    extract_embedded_cover(&audio_path, &app)
 }
