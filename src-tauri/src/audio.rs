@@ -249,10 +249,14 @@ pub fn analyze_with_wmb_single(
         if let Some(h) = &hash {
             if let Ok(guard) = cache.lock() {
                 if let Some(entry) = guard.get(h) {
-                    let status = match entry.bitrate {
-                        Some(b) if b < min => "bad".to_string(),
-                        Some(_) => "ok".to_string(),
-                        None => "error".to_string(),
+                    let status = match (entry.bitrate, entry.is_lossless) {
+                        (Some(b), _) if b < min => "bad".to_string(),
+                        (Some(_), _) => "ok".to_string(),
+                        (None, Some(true)) => "ok".to_string(), // FLAC/lossless = ok
+                        (None, _) => {
+                            eprintln!("[scan] Cached entry has no bitrate for {:?}, note: {:?}", path, entry.note);
+                            "error".to_string()
+                        }
                     };
                     return Ok((entry.bitrate, entry.is_lossless, entry.note.clone(), status));
                 }
@@ -328,11 +332,18 @@ print(json.dumps(af.to_dict()))
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
 
-    let status = match (err.is_some(), est) {
-        (true, _) => "error".to_string(),
-        (false, Some(b)) if b < min => "bad".to_string(),
-        (false, Some(_)) => "ok".to_string(),
-        _ => "error".to_string(),
+    let status = match (err.is_some(), est, lossless) {
+        (true, _, _) => {
+            eprintln!("[scan] Analysis returned error for {:?}: {:?}", path, err);
+            "error".to_string()
+        }
+        (false, Some(b), _) if b < min => "bad".to_string(),
+        (false, Some(_), _) => "ok".to_string(),
+        (false, None, Some(true)) => "ok".to_string(), // FLAC/lossless = ok
+        _ => {
+            eprintln!("[scan] No bitrate returned for {:?}, raw output: {}", path, String::from_utf8_lossy(&output.stdout));
+            "error".to_string()
+        }
     };
 
     if cache_enabled {

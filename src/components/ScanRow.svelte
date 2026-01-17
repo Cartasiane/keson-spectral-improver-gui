@@ -10,6 +10,7 @@
     Cog,
     RefreshCw,
     Send,
+    BadgeCheck,
   } from "lucide-svelte";
 
   export let item;
@@ -89,7 +90,13 @@
       <Cog size={16} />
     {/if}
   </div>
-  <div class="bitrate">{item.bitrate ? `${item.bitrate} kbps` : "n/a"}</div>
+  <div class="bitrate">
+    {item.bitrate
+      ? `${item.bitrate} kbps`
+      : item.is_lossless
+        ? "Lossless"
+        : "n/a"}
+  </div>
   <div class="bitrate">
     {item.is_lossless === true
       ? "Yes"
@@ -97,7 +104,14 @@
         ? "No"
         : "n/a"}
   </div>
-  <div class="name">{item.name}</div>
+  <div class="name">
+    {item.name}
+    {#if item.replaced || item.status === "replaced"}
+      <span class="replaced-badge" title="Déjà replacé par Keson">
+        <BadgeCheck size={14} />
+      </span>
+    {/if}
+  </div>
   <div class="path" title={item.path}>{item.path}</div>
   <div class="actions actions-inline">
     {#if downloadStatus === "no-match"}
@@ -221,5 +235,13 @@
   .btn-row {
     display: flex;
     gap: 6px;
+  }
+
+  .replaced-badge {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 6px;
+    color: #8b5cf6;
+    vertical-align: middle;
   }
 </style>

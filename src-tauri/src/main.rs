@@ -3,6 +3,7 @@
 mod audio;
 mod cache;
 mod settings;
+mod tagging;
 mod types;
 
 use num_cpus;
@@ -373,7 +374,20 @@ async fn scan_folder(
                 );
                 let (bitrate, is_lossless, note, status) = match analysis {
                     Ok(res) => res,
-                    Err(err) => (None, None, Some(err), "error".to_string()),
+                    Err(err) => {
+                        eprintln!("[scan] Analysis FAILED for {:?}: {}", path, err);
+                        (None, None, Some(err), "error".to_string())
+                    }
+                };
+
+                // Check if file has been replaced (has KESON_REPLACED tag)
+                let replaced = tagging::has_replaced_tag(path);
+                
+                // If file was replaced, mark status as "replaced" instead of "bad"
+                let final_status = if replaced && status == "bad" {
+                    "replaced".to_string()
+                } else {
+                    status
                 };
 
                 let done = counter.fetch_add(1, Ordering::SeqCst) + 1;
@@ -386,7 +400,8 @@ async fn scan_folder(
                     bitrate,
                     is_lossless,
                     note,
-                    status,
+                    status: final_status,
+                    replaced,
                 }
             })
             .collect();
@@ -924,6 +939,11 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
 
                                                  let new_bitrate = probe_bitrate(&dest_path, &app);
 
+                                                 // Write KESON_REPLACED tag to mark file as replaced
+                                                 if let Err(e) = tagging::write_replaced_tag(&dest_path) {
+                                                     eprintln!("[GUI] Failed to write replaced tag: {}", e);
+                                                 }
+
                                                  downloaded.push(RedownloadResult {
                                                      original_path: path_str.clone(),
                                                      new_path: dest_path.to_string_lossy().to_string(),
@@ -1046,6 +1066,11 @@ async fn download_with_url(original_path: String, url: String, backup: bool, app
 
         let new_file_path = if backup { &path } else { &dest_path };
         let new_bitrate = probe_bitrate(new_file_path, &app);
+
+        // Write KESON_REPLACED tag to mark file as replaced
+        if let Err(e) = tagging::write_replaced_tag(new_file_path) {
+            eprintln!("[GUI] Failed to write replaced tag: {}", e);
+        }
 
         Ok(RedownloadResult {
             original_path,

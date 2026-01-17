@@ -4,6 +4,7 @@
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
   import { isDesktop } from "../services/scanService";
+
   import {
     Music,
     Clock,
@@ -84,6 +85,7 @@
         result = await invoke("download_link", payload);
       }
       downloads = [result, ...downloads].slice(0, 12);
+      message = result.warning || "Téléchargé";
       message = result.warning || "Téléchargé";
     } catch (error) {
       console.error(error);
@@ -246,7 +248,7 @@
                     style="display:flex; align-items:center; gap:4px;"
                     ><Clock size={14} />
                     {Math.floor(item.duration / 60)}:{String(
-                      Math.floor(item.duration % 60)
+                      Math.floor(item.duration % 60),
                     ).padStart(2, "0")}</span
                   >
                 {/if}

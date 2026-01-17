@@ -41,7 +41,7 @@
   let downloadedItems = []; // Array of comparison objects
 
   $: noMatchCount = Object.values(downloadStatus).filter(
-    (s) => s === "no-match"
+    (s) => s === "no-match",
   ).length;
 
   $: filteredResults =
@@ -49,7 +49,9 @@
       ? scanResults
       : filter === "no-match"
         ? scanResults.filter((r) => downloadStatus[r.path] === "no-match")
-        : scanResults.filter((r) => r.status === filter);
+        : filter === "replaced"
+          ? scanResults.filter((r) => r.status === "replaced" || r.replaced)
+          : scanResults.filter((r) => r.status === filter);
 
   async function pickFolder() {
     const choice = await pickFolderDialog();
@@ -251,7 +253,7 @@
 
             if (isMatch) {
               const origItem = scanResults.find(
-                (s) => s.path === r.original_path
+                (s) => s.path === r.original_path,
               );
               downloadedItems = [
                 ...downloadedItems,
@@ -269,7 +271,7 @@
 
               // Remove from scanResults immediately
               scanResults = scanResults.filter(
-                (s) => s.path !== r.original_path
+                (s) => s.path !== r.original_path,
               );
             }
           }
@@ -371,7 +373,7 @@
           "[QualityTab] orig path:",
           item.original_path,
           "-> url:",
-          origUrl
+          origUrl,
         );
         console.log("[QualityTab] new path:", item.new_path, "-> url:", newUrl);
 
@@ -430,7 +432,7 @@
         if (isMatch) {
           // Add to downloadedItems
           const origItem = scanResults.find(
-            (s) => s.path === result.original_path
+            (s) => s.path === result.original_path,
           );
           downloadedItems = [
             ...downloadedItems,
@@ -448,7 +450,7 @@
 
           // Remove from scanResults
           scanResults = scanResults.filter(
-            (s) => s.path !== result.original_path
+            (s) => s.path !== result.original_path,
           );
 
           // Clear the no-match status
@@ -524,7 +526,7 @@
           items={downloadedItems}
           on:dismiss={(e) => {
             downloadedItems = downloadedItems.filter(
-              (i) => i.original_path !== e.detail.original_path
+              (i) => i.original_path !== e.detail.original_path,
             );
           }}
         />
@@ -554,7 +556,7 @@
             <div class="duration-info">
               <span class="warn"
                 >{item.original_duration?.toFixed(1) || "?"}s → {item.new_duration?.toFixed(
-                  1
+                  1,
                 ) || "?"}s</span
               >
             </div>

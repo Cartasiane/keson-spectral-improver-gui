@@ -23,7 +23,7 @@
   let settingsLoading = false;
   let settingsMessage = "";
   let matrixCanvas;
-  let stopMatrix = () => {};
+  let matrixCleanup = () => {};
 
   // Auth state
   let authChecked = false;
@@ -39,9 +39,10 @@
   onMount(() => {
     loadSettings();
     checkAuth();
-    stopMatrix = startMatrix(matrixCanvas);
+    const { cleanup } = startMatrix(matrixCanvas);
+    matrixCleanup = cleanup;
     checkForUpdates();
-    return () => stopMatrix();
+    return () => matrixCleanup();
   });
 
   async function checkAuth() {
@@ -175,16 +176,6 @@
           >SETTINGS</button
         >
       </nav>
-      <div class="hero-stats">
-        <div>
-          <span class="stat-label">Actifs</span>
-          <span class="stat-value">0</span>
-        </div>
-        <div>
-          <span class="stat-label">En attente</span>
-          <span class="stat-value">0</span>
-        </div>
-      </div>
     </div>
   </header>
 

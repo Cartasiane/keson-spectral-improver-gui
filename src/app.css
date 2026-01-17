@@ -43,14 +43,16 @@ body {
 
 .matrix-bg {
   position: fixed;
-  inset: 0;
+  top: 0;
+  left: 0;
   width: 100vw;
   height: 100vh;
   pointer-events: none;
-  opacity: 0.18;
+  opacity: 1;
   z-index: 0;
-  mix-blend-mode: screen;
 }
+
+
 
 .app {
   max-width: 960px;

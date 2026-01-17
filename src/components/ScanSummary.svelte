@@ -1,18 +1,22 @@
 <script>
   import { createEventDispatcher } from "svelte";
-  import { Check, AlertCircle, HelpCircle } from "lucide-svelte";
+  import { Check, AlertCircle, HelpCircle, BadgeCheck } from "lucide-svelte";
 
   export let results = [];
   export let active = "bad";
   export let downloadedCount = 0;
   export let noMatchCount = 0;
   export let reviewCount = 0;
+  export let replacedCount = 0;
 
   const dispatch = createEventDispatcher();
 
   $: total = results.length;
   $: bad = results.filter((r) => r.status === "bad").length;
   $: ok = results.filter((r) => r.status === "ok").length;
+  $: replaced = results.filter(
+    (r) => r.status === "replaced" || r.replaced,
+  ).length;
   $: err = results.filter((r) => r.status === "error").length;
 
   function setFilter(val) {
@@ -39,6 +43,15 @@
   >
     OK {ok}
   </button>
+  {#if replaced > 0 || replacedCount > 0}
+    <button
+      class={`pill replaced ${active === "replaced" ? "active" : ""}`}
+      on:click={() => setFilter("replaced")}
+    >
+      <BadgeCheck size={16} style="margin-right: 4px" />Already Replaced {replaced ||
+        replacedCount}
+    </button>
+  {/if}
   {#if downloadedCount > 0}
     <button
       class={`pill success ${active === "downloaded" ? "active" : ""}`}
@@ -105,5 +118,12 @@
   }
   .pill.nomatch.active {
     outline-color: #f59e0b;
+  }
+  .pill.replaced {
+    background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+    color: white;
+  }
+  .pill.replaced.active {
+    outline-color: #8b5cf6;
   }
 </style>

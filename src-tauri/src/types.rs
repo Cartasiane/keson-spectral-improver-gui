@@ -38,7 +38,8 @@ pub struct ScanResult {
     pub bitrate: Option<u32>,
     pub is_lossless: Option<bool>,
     pub note: Option<String>,
-    pub status: String, // "ok" | "bad" | "error"
+    pub status: String, // "ok" | "bad" | "error" | "replaced"
+    pub replaced: bool, // true if KESON_REPLACED tag exists
 }
 
 #[derive(Serialize, Deserialize, Clone)]
