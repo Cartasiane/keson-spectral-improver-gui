@@ -9,7 +9,8 @@
       "resources/ffprobe"
     ],
     "macOS": {
-      "minimumSystemVersion": "10.13"
+      "minimumSystemVersion": "10.13",
+      "signingIdentity": "-"
     },
     "icon": [
       "icons/icon.icns",
@@ -29,7 +30,7 @@
   },
   "productName": "Keson Spectral Improver",
   "mainBinaryName": "Keson Spectral Improver",
-  "version": "0.9.5",
+  "version": "0.9.6",
   "identifier": "com.keson.spectralimprover",
   "plugins": {
     "updater": {
