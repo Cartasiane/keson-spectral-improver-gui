@@ -3,7 +3,7 @@
   import { downloadDir } from "@tauri-apps/api/path";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
-  import { isDesktop } from "../services/scanService";
+  import { isDesktop, getCoverSrc } from "../services/scanService";
 
   import {
     Music,
@@ -13,16 +13,6 @@
     FolderOpen,
     FolderSearch,
   } from "lucide-svelte";
-
-  // Convert cover path to displayable URL (handles local file paths)
-  function getCoverSrc(coverUrl) {
-    if (!coverUrl) return null;
-    // If it's a local file path, convert it
-    if (coverUrl.startsWith("/") && isDesktop) {
-      return convertFileSrc(coverUrl);
-    }
-    return coverUrl;
-  }
 
   let url = "";
   let message = "";

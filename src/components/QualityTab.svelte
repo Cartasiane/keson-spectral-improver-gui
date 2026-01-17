@@ -588,29 +588,30 @@
         {/each}
       </div>
     {/if}
-
-    <div class="scan-table">
-      <div class="scan-row head">
-        <div>Statut</div>
-        <div>Bitrate</div>
-        <div>Lossless</div>
-        <div>Nom</div>
-        <div>Chemin</div>
-        <div>Actions</div>
+    {#if filter !== "downloaded"}
+      <div class="scan-table">
+        <div class="scan-row head">
+          <div>Statut</div>
+          <div>Bitrate</div>
+          <div>Lossless</div>
+          <div>Nom</div>
+          <div>Chemin</div>
+          <div>Actions</div>
+        </div>
+        {#each filteredResults as item}
+          <ScanRow
+            {item}
+            spectrumUrl={spectra[item.path]}
+            loading={!!spectroLoading[item.path]}
+            downloadStatus={downloadStatus[item.path]}
+            on:reveal={(e) => reveal(e.detail)}
+            on:spectrum={(e) => spectrum(e.detail)}
+            on:redownload={handleSingleRedownload}
+            on:manualUrl={handleInlineManualUrl}
+          />
+        {/each}
       </div>
-      {#each filteredResults as item}
-        <ScanRow
-          {item}
-          spectrumUrl={spectra[item.path]}
-          loading={!!spectroLoading[item.path]}
-          downloadStatus={downloadStatus[item.path]}
-          on:reveal={(e) => reveal(e.detail)}
-          on:spectrum={(e) => spectrum(e.detail)}
-          on:redownload={handleSingleRedownload}
-          on:manualUrl={handleInlineManualUrl}
-        />
-      {/each}
-    </div>
+    {/if}
   {/if}
 
   <!-- Redownload Options Modal -->

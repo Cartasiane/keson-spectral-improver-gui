@@ -1,6 +1,10 @@
 <script>
   import { convertFileSrc } from "@tauri-apps/api/core";
-  import { revertReplacement, extractCover } from "../services/scanService";
+  import {
+    revertReplacement,
+    extractCover,
+    getCoverSrc,
+  } from "../services/scanService";
   import { createEventDispatcher, onMount } from "svelte";
   import { Check, Trash2, RotateCcw, Music } from "lucide-svelte";
 
@@ -32,7 +36,7 @@
   async function handleRevert(item) {
     try {
       const confirm = await window.confirm(
-        "Voulez-vous vraiment restaurer le fichier original ?"
+        "Voulez-vous vraiment restaurer le fichier original ?",
       );
       if (!confirm) return;
 
@@ -78,11 +82,6 @@
 
 {#if items.length > 0}
   <div class="comparison-section">
-    <div class="section-header">
-      <h3><Check size={18} /> Fichiers remplacés</h3>
-      <span class="badge success">{items.length}</span>
-    </div>
-
     <div class="comparison-grid">
       {#each items as item}
         <div class="comparison-card">
@@ -137,8 +136,12 @@
 
               <!-- Cover Art -->
               <div class="cover-container">
-                {#if item.cover_url}
-                  <img src={item.cover_url} class="cover-img" alt="New Cover" />
+                {#if getCoverSrc(item.cover_url)}
+                  <img
+                    src={getCoverSrc(item.cover_url)}
+                    class="cover-img"
+                    alt="New Cover"
+                  />
                 {:else}
                   <div class="cover-placeholder">
                     <Music size={24} />

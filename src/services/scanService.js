@@ -29,8 +29,8 @@ export async function openSpectrum(path) {
 
 export async function redownloadBad(paths, options = {}) {
   if (!isDesktop) throw new Error('Disponible seulement en desktop')
-  return invoke('redownload_bad', { 
-    paths, 
+  return invoke('redownload_bad', {
+    paths,
     source: options.source || 'auto',
     backup: options.backup ?? true
   })
@@ -38,8 +38,8 @@ export async function redownloadBad(paths, options = {}) {
 
 export async function downloadWithUrl(originalPath, url, backup = true) {
   if (!isDesktop) throw new Error('Disponible seulement en desktop')
-  return invoke('download_with_url', { 
-    originalPath, 
+  return invoke('download_with_url', {
+    originalPath,
     url,
     backup
   })
@@ -71,4 +71,18 @@ export async function listenScanProgress(callback) {
 export async function extractCover(audioPath) {
   if (!isDesktop) return null
   return invoke('extract_cover', { audioPath })
+}
+
+/**
+ * Convert cover path to displayable URL (handles local file paths)
+ * @param {string|null} coverUrl - URL or local file path
+ * @returns {string|null} - Displayable URL
+ */
+export function getCoverSrc(coverUrl) {
+  if (!coverUrl) return null
+  // If it's a local file path, convert it for Tauri
+  if (coverUrl.startsWith('/') && isDesktop) {
+    return convertFileSrc(coverUrl)
+  }
+  return coverUrl
 }
