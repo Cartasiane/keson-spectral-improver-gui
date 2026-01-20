@@ -719,17 +719,10 @@ async fn check_auth_status(app: tauri::AppHandle) -> Result<AuthStatus, String> 
 
 fn main() {
     init_rayon_pool();
-    let mut builder = tauri::Builder::default()
+    tauri::Builder::default()
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_http::init());
-
-    #[cfg(not(debug_assertions))]
-    {
-        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
-    }
-
-    builder
+        .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -737,6 +730,14 @@ fn main() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
+        .setup(|app| {
+            // Only register updater plugin if config exists (not stripped for debug)
+            #[cfg(not(debug_assertions))]
+            {
+                app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             queue_stats,
             download_link,
