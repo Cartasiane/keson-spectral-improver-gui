@@ -34,7 +34,7 @@ jobs:
         run: npm run build
 
       - name: Disable Updater (for debug build)
-        run: node -e "const fs = require('fs'); const p = 'src-tauri/tauri.conf.json'; const c = JSON.parse(fs.readFileSync(p, 'utf8')); delete c.plugins.updater; delete c.bundle.createUpdaterArtifacts; fs.writeFileSync(p, JSON.stringify(c, null, 2));"
+        run: node -e "const fs = require('fs'); const p = 'src-tauri/tauri.conf.json'; const c = JSON.parse(fs.readFileSync(p, 'utf8')); delete c.plugins?.updater; if (c.plugins && Object.keys(c.plugins).length === 0) delete c.plugins; delete c.bundle?.createUpdaterArtifacts; fs.writeFileSync(p, JSON.stringify(c, null, 2));"
 
       - name: Build Tauri app (debug)
         env:
