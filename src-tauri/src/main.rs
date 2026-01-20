@@ -731,8 +731,8 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
-            // Only register updater plugin if config exists (not stripped for debug)
-            #[cfg(not(debug_assertions))]
+            // Only register updater plugin if with-updater feature is enabled
+            #[cfg(feature = "with-updater")]
             {
                 app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
             }
