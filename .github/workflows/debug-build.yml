@@ -36,9 +36,12 @@ jobs:
       - name: Disable Updater (for debug build)
         run: |
           node -e "const fs = require('fs'); const p = 'src-tauri/tauri.conf.json'; const c = JSON.parse(fs.readFileSync(p, 'utf8')); delete c.plugins; delete c.bundle.createUpdaterArtifacts; fs.writeFileSync(p, JSON.stringify(c, null, 2));"
+          node -e "const fs = require('fs'); const p = 'src-tauri/capabilities/desktop.json'; const c = JSON.parse(fs.readFileSync(p, 'utf8')); c.permissions = c.permissions.filter(perm => !perm.startsWith('updater:')); fs.writeFileSync(p, JSON.stringify(c, null, 2));"
           echo "=== Modified tauri.conf.json ==="
           cat src-tauri/tauri.conf.json
-          echo "=== End of config ==="
+          echo "=== Modified desktop.json ==="
+          cat src-tauri/capabilities/desktop.json
+          echo "=== End of configs ==="
 
       - name: Clean Rust target (fresh build)
         run: |
