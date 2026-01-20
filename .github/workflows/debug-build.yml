@@ -34,11 +34,17 @@ jobs:
         run: npm run build
 
       - name: Disable Updater (for debug build)
-        run: node -e "const fs = require('fs'); const p = 'src-tauri/tauri.conf.json'; const c = JSON.parse(fs.readFileSync(p, 'utf8')); delete c.plugins?.updater; if (c.plugins && Object.keys(c.plugins).length === 0) delete c.plugins; delete c.bundle?.createUpdaterArtifacts; fs.writeFileSync(p, JSON.stringify(c, null, 2));"
+        run: |
+          node -e "const fs = require('fs'); const p = 'src-tauri/tauri.conf.json'; const c = JSON.parse(fs.readFileSync(p, 'utf8')); delete c.plugins; delete c.bundle.createUpdaterArtifacts; fs.writeFileSync(p, JSON.stringify(c, null, 2));"
+          echo "=== Modified tauri.conf.json ==="
+          cat src-tauri/tauri.conf.json
+          echo "=== End of config ==="
+
+      - name: Clean Rust target (fresh build)
+        run: |
+          if (Test-Path "src-tauri/target") { Remove-Item -Recurse -Force "src-tauri/target" }
 
       - name: Build Tauri app (debug)
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
         run: npx tauri build --debug
 
       - name: Upload debug artifacts
