@@ -719,11 +719,17 @@ async fn check_auth_status(app: tauri::AppHandle) -> Result<AuthStatus, String> 
 
 fn main() {
     init_rayon_pool();
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_http::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_http::init());
+
+    #[cfg(not(debug_assertions))]
+    {
+        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    }
+
+    builder
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
