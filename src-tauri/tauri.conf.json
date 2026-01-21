@@ -12,7 +12,8 @@
     ],
     "macOS": {
       "minimumSystemVersion": "10.13",
-      "signingIdentity": "-"
+      "signingIdentity": "-",
+      "entitlements": "Entitlements.plist"
     },
     "icon": [
       "icons/icon.icns",

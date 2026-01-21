@@ -21,28 +21,14 @@ a = Analysis(
     },
     runtime_hooks=[],
     excludes=[
-        # GUI toolkits (not needed with Agg backend)
         'tkinter', '_tkinter', 'Tkinter',
         'PyQt5', 'PyQt6', 'PySide2', 'PySide6',
         'wx', 'wxPython',
         'gi', 'gtk',
-        # Large unused libraries
         'pandas',
         'IPython', 'ipython',
         'notebook', 'jupyter',
-        'pytest', 'unittest',
-        # Unused scipy submodules
-        'scipy.io',
-        'scipy.sparse',
-        'scipy.spatial',
-        'scipy.optimize',
-        'scipy.integrate',
-        'scipy.interpolate',
-        'scipy.stats',
-        'scipy.cluster',
-        'scipy.odr',
-        'scipy.misc',
-        # Unused matplotlib backends
+        'pytest',
         'matplotlib.backends.backend_qt5agg',
         'matplotlib.backends.backend_qt5',
         'matplotlib.backends.backend_qt4agg',
@@ -81,6 +67,6 @@ exe = EXE(
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
+    codesign_identity='-',
+    entitlements_file='entitlements.plist',
 )
