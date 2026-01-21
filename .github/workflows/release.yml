@@ -57,27 +57,16 @@ jobs:
           pip install -r requirements.txt
           pyinstaller whatsmybitrate.spec
 
-          # Move to src-tauri/binaries with correct naming
-          mkdir -p ../../src-tauri/binaries
+          # Prepare resources directory
+          mkdir -p ../../src-tauri/resources/whatsmybitrate
 
-          # Determine target triple for sidecar naming
-          if [[ "${{ matrix.platform }}" == "macos-14" ]]; then
-            TARGET="aarch64-apple-darwin"
-          elif [[ "${{ matrix.platform }}" == "macos-latest" ]]; then
-            TARGET="x86_64-apple-darwin"
-          elif [[ "${{ matrix.platform }}" == "ubuntu-22.04" ]]; then
-            TARGET="x86_64-unknown-linux-gnu"
-          elif [[ "${{ matrix.platform }}" == "windows-latest" ]]; then
-            TARGET="x86_64-pc-windows-msvc"
+          # Apply ad-hoc signature to the main binary inside the bundle (macOS only)
+          if [[ "${{ matrix.platform }}" == "macos-14" || "${{ matrix.platform }}" == "macos-latest" ]]; then
+             codesign --force --sign - --entitlements entitlements.plist --options runtime dist/whatsmybitrate/whatsmybitrate
           fi
 
-          # Copy with target suffix
-          # On Windows, PyInstaller creates .exe
-          if [[ "${{ matrix.platform }}" == "windows-latest" ]]; then
-             cp dist/whatsmybitrate.exe ../../src-tauri/binaries/whatsmybitrate-$TARGET.exe
-          else
-             cp dist/whatsmybitrate ../../src-tauri/binaries/whatsmybitrate-$TARGET
-          fi
+          # Copy the entire onedir content to resources
+          cp -r dist/whatsmybitrate/* ../../src-tauri/resources/whatsmybitrate/
         shell: bash
 
       - name: Setup Node.js

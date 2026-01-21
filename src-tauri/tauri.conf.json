@@ -3,10 +3,8 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": [
-      "binaries/whatsmybitrate"
-    ],
     "resources": [
+      "resources/whatsmybitrate",
       "resources/ffmpeg",
       "resources/ffprobe"
     ],

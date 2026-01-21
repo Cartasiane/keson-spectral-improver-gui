@@ -52,9 +52,6 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
     name='whatsmybitrate',
     debug=False,
@@ -69,4 +66,15 @@ exe = EXE(
     target_arch=None,
     codesign_identity='-',
     entitlements_file='entitlements.plist',
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name='whatsmybitrate',
 )

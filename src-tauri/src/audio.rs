@@ -186,7 +186,6 @@ pub async fn invoke_whatsmybitrate(
     window: Option<u32>,
     output: Option<&str>,
 ) -> Result<serde_json::Value, String> {
-    use tauri_plugin_shell::ShellExt;
     
     let args = {
         let mut a = vec![mode.to_string(), file_path.to_string()];
@@ -201,54 +200,73 @@ pub async fn invoke_whatsmybitrate(
         a
     };
     
-    // Try sidecar first
-    let shell = app.shell();
-    
-    // We try to create the sidecar command. If it fails (binary missing), we go to fallback.
-    if let Ok(cmd) = shell.sidecar("whatsmybitrate") {
-         let output = cmd
-            .args(&args)
-            .output()
-            .await
-            .map_err(|e| format!("Failed to execute sidecar: {}", e))?;
-        
-        if output.status.success() {
-             return serde_json::from_slice(&output.stdout)
-                .map_err(|e| format!("Failed to parse output: {}", e));
+    // Determine binary name based on platform
+    #[cfg(windows)]
+    let bin_name = "whatsmybitrate.exe";
+    #[cfg(not(windows))]
+    let bin_name = "whatsmybitrate";
+
+    // Try to find the bundled onedir executable in resources
+    let mut exe_path = None;
+    if let Some(dir) = get_resource_path(app, "whatsmybitrate") {
+        let candidate = dir.join(bin_name);
+        if candidate.exists() {
+            exe_path = Some(candidate);
         }
-        // If sidecar ran but failed (non-zero exit), we return error.
-        // Unless it's just that sidecar binary is invalid? 
-        // Assuming if sidecar works, we trust it.
-        // But if sidecar exists but fails, maybe we shouldn't fallback to python?
-        // Actually, let's try fallback if sidecar fails? No, if sidecar runs, it means environment is prod-like.
-        return Err(String::from_utf8_lossy(&output.stderr).to_string());
     }
 
-    // Fallback to python3 for development
-    let exe_dir = std::env::current_exe().map_err(|e| e.to_string())?.parent().ok_or("no parent")?.to_path_buf();
-    let vendor_dir = exe_dir.join("../vendor/whatsmybitrate");
-    let script_path = vendor_dir.join("whatsmybitrate_cli.py");
-     
-    if !script_path.exists() {
-         return Err("Sidecar not found and dev script not found".to_string());
+    // Fallback to python3 for development if bundled binary not found
+    if exe_path.is_none() {
+        let exe_dir = std::env::current_exe().map_err(|e| e.to_string())?.parent().ok_or("no parent")?.to_path_buf();
+        let vendor_dir = exe_dir.join("../vendor/whatsmybitrate");
+        let script_path = vendor_dir.join("whatsmybitrate_cli.py");
+         
+        if script_path.exists() {
+             let envs = get_env_with_resources(app);
+             let script_path_clone = script_path.clone();
+
+             // Run blocking python command
+             return tauri::async_runtime::spawn_blocking(move || {
+                 let python = "python3";
+                 let mut cmd = Command::new(python);
+                 cmd.arg(&script_path_clone);
+                 for arg in args {
+                     cmd.arg(arg);
+                 }
+                 
+                 let output = cmd
+                    .envs(&envs)
+                    .output()
+                    .map_err(|e| format!("python3 failed: {}", e))?;
+
+                 if !output.status.success() {
+                    return Err(String::from_utf8_lossy(&output.stderr).to_string());
+                 }
+
+                 serde_json::from_slice(&output.stdout)
+                    .map_err(|e| format!("Failed to parse output: {}", e))
+            }).await.map_err(|e| e.to_string())?
+        }
     }
 
-    let envs = get_env_with_resources(app);
-    let script_path_clone = script_path.clone();
+    let exe_final = exe_path.ok_or("Bundled whatsmybitrate not found and dev script missing")?;
+    let exe_clone = exe_final.clone();
 
-    // Run blocking python command
+    // Run bundled executable
     tauri::async_runtime::spawn_blocking(move || {
-         let python = "python3";
-         let mut cmd = Command::new(python);
-         cmd.arg(&script_path_clone);
+         let mut cmd = Command::new(&exe_clone);
          for arg in args {
              cmd.arg(arg);
          }
          
+         // On macOS/Linux, we might need to preserve environment or set minimal
+         // but onedir should be self-contained. 
+         // However, on macOS, adhoc signing might require clean env?
+         // Let's inherit env for now.
+
          let output = cmd
-            .envs(&envs)
             .output()
-            .map_err(|e| format!("python3 failed: {}", e))?;
+            .map_err(|e| format!("whatsmybitrate execution failed: {}", e))?;
 
          if !output.status.success() {
             return Err(String::from_utf8_lossy(&output.stderr).to_string());
