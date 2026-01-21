@@ -178,54 +178,98 @@ pub fn probe_duration(path: &Path, app: &tauri::AppHandle) -> Option<f64> {
     f64::from_str(line).ok()
 }
 
-/// Probe bitrate using whatsmybitrate
-pub fn probe_bitrate(path: &Path, app: &tauri::AppHandle) -> Option<u32> {
-    let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+// New helper function to invoke whatsmybitrate sidecar
+pub async fn invoke_whatsmybitrate(
+    app: &tauri::AppHandle,
+    mode: &str, 
+    file_path: &str,
+    window: Option<u32>,
+    output: Option<&str>,
+) -> Result<serde_json::Value, String> {
+    use tauri_plugin_shell::ShellExt;
     
-    // Look for wmb vendor dir in resources first, then fallback (for dev)
-    let vendor_candidates = [
-        get_resource_path(app, "whatsmybitrate"), // In bundled resources
-        get_resource_path(app, "../vendor/whatsmybitrate"), // Relative in dev?
-        Some(exe_dir.join("../vendor/whatsmybitrate")),
-        Some(exe_dir.join("vendor/whatsmybitrate")),
-    ];
+    let args = {
+        let mut a = vec![mode.to_string(), file_path.to_string()];
+        if let Some(w) = window {
+            a.push("--window".to_string());
+            a.push(w.to_string());
+        }
+        if let Some(o) = output {
+            a.push("--output".to_string());
+            a.push(o.to_string());
+        }
+        a
+    };
     
-    let vendor_dir = vendor_candidates.iter()
-        .flatten()
-        .find(|p| p.exists())
-        .cloned()
-        .unwrap_or_else(|| PathBuf::from("vendor/whatsmybitrate"));
-
-    let script = format!(
-        r#"
-import sys, json
-sys.path.insert(0, r"{vendor}")
-from wmb_core import AudioFile
-import wmb_core
-wmb_core.MAX_LOAD_SECONDS = 30
-af = AudioFile(sys.argv[1])
-af.analyze(generate_spectrogram_flag=False, assets_dir=None)
-print(json.dumps({{"bitrate": af.to_dict().get("estimated_bitrate_numeric")}}))
-"#,
-        vendor = vendor_dir.display()
-    );
-
-    // Prepare env with bundled binaries
-    let envs = get_env_with_resources(app);
-
-    let output = Command::new("python3")
-        .args(["-c", &script, path.to_str()?])
-        .envs(&envs)
-        .output()
-        .ok()?;
-
-    if !output.status.success() {
-        eprintln!("[probe_bitrate] whatsmybitrate failed: {}", String::from_utf8_lossy(&output.stderr));
-        return None;
+    // Try sidecar first
+    let shell = app.shell();
+    
+    // We try to create the sidecar command. If it fails (binary missing), we go to fallback.
+    if let Ok(cmd) = shell.sidecar("whatsmybitrate") {
+         let output = cmd
+            .args(&args)
+            .output()
+            .await
+            .map_err(|e| format!("Failed to execute sidecar: {}", e))?;
+        
+        if output.status.success() {
+             return serde_json::from_slice(&output.stdout)
+                .map_err(|e| format!("Failed to parse output: {}", e));
+        }
+        // If sidecar ran but failed (non-zero exit), we return error.
+        // Unless it's just that sidecar binary is invalid? 
+        // Assuming if sidecar works, we trust it.
+        // But if sidecar exists but fails, maybe we shouldn't fallback to python?
+        // Actually, let's try fallback if sidecar fails? No, if sidecar runs, it means environment is prod-like.
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
     }
 
-    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
-    parsed.get("bitrate")
+    // Fallback to python3 for development
+    let exe_dir = std::env::current_exe().map_err(|e| e.to_string())?.parent().ok_or("no parent")?.to_path_buf();
+    let vendor_dir = exe_dir.join("../vendor/whatsmybitrate");
+    let script_path = vendor_dir.join("whatsmybitrate_cli.py");
+     
+    if !script_path.exists() {
+         return Err("Sidecar not found and dev script not found".to_string());
+    }
+
+    let envs = get_env_with_resources(app);
+    let script_path_clone = script_path.clone();
+
+    // Run blocking python command
+    tauri::async_runtime::spawn_blocking(move || {
+         let python = "python3";
+         let mut cmd = Command::new(python);
+         cmd.arg(&script_path_clone);
+         for arg in args {
+             cmd.arg(arg);
+         }
+         
+         let output = cmd
+            .envs(&envs)
+            .output()
+            .map_err(|e| format!("python3 failed: {}", e))?;
+
+         if !output.status.success() {
+            return Err(String::from_utf8_lossy(&output.stderr).to_string());
+         }
+
+         serde_json::from_slice(&output.stdout)
+            .map_err(|e| format!("Failed to parse output: {}", e))
+    }).await.map_err(|e| e.to_string())?
+}
+
+/// Probe bitrate using whatsmybitrate
+pub fn probe_bitrate(path: &Path, app: &tauri::AppHandle) -> Option<u32> {
+    let result = tauri::async_runtime::block_on(invoke_whatsmybitrate(
+        app, 
+        "probe", 
+        path.to_str()?, 
+        None, 
+        None
+    )).ok()?;
+    
+    result.get("bitrate")
         .and_then(|v| v.as_f64())
         .map(|v| v.round() as u32)
 }
@@ -264,63 +308,15 @@ pub fn analyze_with_wmb_single(
         }
     }
 
-    let exe_dir = std::env::current_exe().map_err(|e| format!("exe path: {e}"))?.parent().ok_or("no parent")?.to_path_buf();
 
-    // Look for wmb vendor dir
-    let vendor_candidates = [
-        get_resource_path(app, "whatsmybitrate"),
-        Some(exe_dir.join("../vendor/whatsmybitrate")),
-        Some(exe_dir.join("vendor/whatsmybitrate")),
-    ];
-    
-    let vendor_dir = vendor_candidates.iter()
-        .flatten()
-        .find(|p| p.exists())
-        .cloned()
-        .ok_or_else(|| format!("whatsmybitrate vendor directory not found. Checked resource dir and {:?} ", exe_dir))?;
+    let parsed = tauri::async_runtime::block_on(invoke_whatsmybitrate(
+        app,
+        "analyze",
+        path.to_str().unwrap_or_default(),
+        Some(analysis_window),
+        None
+    ))?;
 
-    let python = "python3";
-    let py_check = Command::new(python)
-        .arg("--version")
-        .output()
-        .map_err(|e| format!("python3 introuvable: {e}"))?;
-    if !py_check.status.success() {
-        return Err("python3 introuvable (ajoute-le au PATH)".into());
-    }
-
-    let script = format!(
-        r#"
-import sys, json
-sys.path.insert(0, r"{vendor}")
-from wmb_core import AudioFile
-import wmb_core
-wmb_core.MAX_LOAD_SECONDS = {window}
-af = AudioFile(sys.argv[1])
-af.analyze(generate_spectrogram_flag=False, assets_dir=None)
-print(json.dumps(af.to_dict()))
-"#,
-        vendor = vendor_dir.display(),
-        window = analysis_window
-    );
-
-    // Use bundled env
-    let envs = get_env_with_resources(app);
-
-    let output = Command::new(python)
-        .args(["-c", &script, path.to_str().unwrap_or_default()])
-        .envs(&envs)
-        .output()
-        .map_err(|e| format!("python3: {e}"))?;
-
-    if !output.status.success() {
-        return Err(format!(
-            "whatsmybitrate a échoué: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-
-    let parsed: serde_json::Value =
-        serde_json::from_slice(&output.stdout).map_err(|e| format!("parse json: {e}"))?;
     let est = parsed
         .get("estimated_bitrate_numeric")
         .and_then(|v| v.as_f64())
@@ -341,7 +337,7 @@ print(json.dumps(af.to_dict()))
         (false, Some(_), _) => "ok".to_string(),
         (false, None, Some(true)) => "ok".to_string(), // FLAC/lossless = ok
         _ => {
-            eprintln!("[scan] No bitrate returned for {:?}, raw output: {}", path, String::from_utf8_lossy(&output.stdout));
+            eprintln!("[scan] No bitrate returned for {:?}, parsed: {:?}", path, parsed);
             "error".to_string()
         }
     };

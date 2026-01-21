@@ -42,7 +42,43 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Build whatsmybitrate sidecar
+        run: |
+          cd vendor/whatsmybitrate
+          pip install pyinstaller
+          pip install -r requirements.txt
+          pyinstaller whatsmybitrate.spec
+
+          # Move to src-tauri/binaries with correct naming
+          mkdir -p ../../src-tauri/binaries
+
+          # Determine target triple for sidecar naming
+          if [[ "${{ matrix.platform }}" == "macos-14" ]]; then
+            TARGET="aarch64-apple-darwin"
+          elif [[ "${{ matrix.platform }}" == "macos-latest" ]]; then
+            TARGET="x86_64-apple-darwin"
+          elif [[ "${{ matrix.platform }}" == "ubuntu-22.04" ]]; then
+            TARGET="x86_64-unknown-linux-gnu"
+          elif [[ "${{ matrix.platform }}" == "windows-latest" ]]; then
+            TARGET="x86_64-pc-windows-msvc"
+          fi
+
+          # Copy with target suffix
+          # On Windows, PyInstaller creates .exe
+          if [[ "${{ matrix.platform }}" == "windows-latest" ]]; then
+             cp dist/whatsmybitrate.exe ../../src-tauri/binaries/whatsmybitrate-$TARGET.exe
+          else
+             cp dist/whatsmybitrate ../../src-tauri/binaries/whatsmybitrate-$TARGET
+          fi
+        shell: bash
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

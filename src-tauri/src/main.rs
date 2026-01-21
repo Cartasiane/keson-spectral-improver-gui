@@ -485,73 +485,39 @@ async fn open_spectrum(path: String, app: tauri::AppHandle) -> Result<Vec<u8>, S
         return Err("Fichier introuvable".into());
     }
 
-    let vendor = get_resource_path(&app, "whatsmybitrate")
-            .ok_or_else(|| "Module 'whatsmybitrate' introuvable dans les ressources".to_string())?;
-
-    let python = "python3";
-    let py_check = Command::new(python)
-        .arg("--version")
-        .output()
-        .map_err(|e| format!("python3 introuvable: {e}"))?;
-    if !py_check.status.success() {
-        return Err("python3 introuvable (ajoute-le au PATH)".into());
-    }
-
     let temp_root = app.path().app_cache_dir().map_err(|e| e.to_string())?;
     if !temp_root.exists() {
         std::fs::create_dir_all(&temp_root).map_err(|e| e.to_string())?;
     }
     let temp_root_str = temp_root.to_string_lossy();
 
-    let script = format!(
-        r#"
-import sys, tempfile, os
-sys.path.insert(0, r"{vendor}")
-from wmb_core import AudioFile
-path = sys.argv[1]
-base_tmp = sys.argv[2]
-if not os.path.exists(base_tmp):
-    try: os.makedirs(base_tmp)
-    except: pass
-tmp = tempfile.mkdtemp(prefix="wmb-", dir=base_tmp)
-af = AudioFile(path)
-af.analyze(generate_spectrogram_flag=True, assets_dir=tmp)
-print(af.spectrogram_path or "")
-"#,
-        vendor = vendor.display()
-    );
+    let result = audio::invoke_whatsmybitrate(
+        &app,
+        "spectrum",
+        src.to_str().unwrap_or_default(),
+        None,
+        Some(&temp_root_str),
+    ).await;
 
-    let envs = get_env_with_resources(&app);
-
-    let output = Command::new(python)
-        .args(["-c", &script, src.to_str().unwrap_or_default(), &temp_root_str])
-        .envs(&envs)
-        .output()
-        .map_err(|e| format!("python3: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.contains("ModuleNotFoundError") || stderr.contains("No module named") {
-            return Err(
-                "Dépendances Python manquantes (librosa, matplotlib, numpy...). \
-Installe-les : pip install -r vendor/whatsmybitrate/requirements.txt"
-                    .into(),
-            );
-        }
-        return Err(format!("whatsmybitrate a échoué: {}", stderr));
+    match result {
+        Ok(json) => {
+             // Check if "error" key is present in the JSON response
+            if let Some(err) = json.get("error").and_then(|s| s.as_str()) {
+                return Err(format!("whatsmybitrate failed: {}", err));
+            }
+             
+            let spectro_path = json.get("spectrogram_path").and_then(|s| s.as_str());
+            if let Some(p) = spectro_path {
+                 let bytes = std::fs::read(p).map_err(|e| format!("Failed to read generated spectrum: {e}"))?;
+                 // Clean up the file
+                 let _ = std::fs::remove_file(p); 
+                 Ok(bytes)
+            } else {
+                 Err("whatsmybitrate did not return a spectrogram path".into())
+            }
+        },
+        Err(e) => Err(format!("whatsmybitrate execution failed: {}", e))
     }
-
-    let spectro = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if spectro.is_empty() {
-        return Err(
-            "whatsmybitrate n'a pas produit de spectrogramme (vérifie les dépendances Python ou la taille du fichier)"
-                .into(),
-        );
-    }
-    
-    let bytes = std::fs::read(&spectro).map_err(|e| format!("Failed to read generated spectrum: {e}"))?;
-    
-    Ok(bytes)
 }
 
 

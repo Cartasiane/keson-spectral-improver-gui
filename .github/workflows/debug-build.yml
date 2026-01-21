@@ -21,6 +21,55 @@ jobs:
         with:
           workspaces: "./src-tauri -> target"
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Build whatsmybitrate sidecar
+        run: |
+          echo "Current directory: $(pwd)"
+          cd vendor/whatsmybitrate
+          echo "Installing PyInstaller and dependencies..."
+          pip install pyinstaller
+          pip install -r requirements.txt
+
+          echo "Building sidecar..."
+          pyinstaller whatsmybitrate.spec
+
+          echo "Listing dist directory:"
+          ls -R dist/
+
+          # Move to src-tauri/binaries with correct naming
+          echo "Creating target directory: ../../src-tauri/binaries"
+          mkdir -p ../../src-tauri/binaries
+
+          # Windows target triple
+          TARGET="x86_64-pc-windows-msvc"
+          echo "TARGET triple is: $TARGET"
+
+          SRC="dist/whatsmybitrate.exe"
+          DEST="../../src-tauri/binaries/whatsmybitrate-$TARGET.exe"
+
+          if [ -f "$SRC" ]; then
+            echo "Found source binary at $SRC"
+            echo "Copying to $DEST"
+            cp "$SRC" "$DEST"
+          else
+            echo "ERROR: Source binary $SRC not found!"
+            exit 1
+          fi
+
+          if [ -f "$DEST" ]; then
+            echo "Success! Binary copied to $DEST"
+            ls -l "$DEST"
+          else
+             echo "ERROR: Destination file $DEST missing after copy!"
+             exit 1
+          fi
+        shell: bash
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
