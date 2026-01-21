@@ -251,10 +251,12 @@ pub async fn invoke_whatsmybitrate(
 
     let exe_final = exe_path.ok_or("Bundled whatsmybitrate not found and dev script missing")?;
     let exe_clone = exe_final.clone();
+    let envs = get_env_with_resources(app);
 
     // Run bundled executable
     tauri::async_runtime::spawn_blocking(move || {
          let mut cmd = Command::new(&exe_clone);
+         cmd.envs(&envs);
          for arg in args {
              cmd.arg(arg);
          }
