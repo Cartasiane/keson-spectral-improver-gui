@@ -15,3 +15,9 @@ src-tauri/gen/schemas/
 *.deb
 *.rpm
 *.AppImage
+
+# PyInstaller artifacts
+vendor/whatsmybitrate/build/
+vendor/whatsmybitrate/dist/
+vendor/whatsmybitrate/__pycache__/
+src-tauri/resources/whatsmybitrate/

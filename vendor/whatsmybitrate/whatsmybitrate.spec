@@ -58,6 +58,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
+    exclude_binaries=True,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=True,
