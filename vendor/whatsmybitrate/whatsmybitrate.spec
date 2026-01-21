@@ -27,7 +27,6 @@ a = Analysis(
         'wx', 'wxPython',
         'gi', 'gtk',
         # Large unused libraries
-        'PIL', 'Pillow',
         'pandas',
         'IPython', 'ipython',
         'notebook', 'jupyter',
