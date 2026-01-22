@@ -5,8 +5,8 @@
     "targets": "all",
     "resources": [
       "resources/whatsmybitrate",
-      "resources/ffmpeg",
-      "resources/ffprobe"
+      "resources/ffmpeg*",
+      "resources/ffprobe*"
     ],
     "macOS": {
       "minimumSystemVersion": "10.13",

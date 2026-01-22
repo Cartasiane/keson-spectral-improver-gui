@@ -21,6 +21,18 @@ jobs:
         with:
           workspaces: "./src-tauri -> target"
 
+      - name: Install dependencies (Windows)
+        run: |
+          # Download ffmpeg release for Windows
+          Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -OutFile "ffmpeg.zip"
+          Expand-Archive -Path "ffmpeg.zip" -DestinationPath "ffmpeg-temp"
+
+          # Move binaries to resources directory
+          mkdir -p src-tauri/resources
+          Copy-Item "ffmpeg-temp/ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe" -Destination "src-tauri/resources/"
+          Copy-Item "ffmpeg-temp/ffmpeg-master-latest-win64-gpl/bin/ffprobe.exe" -Destination "src-tauri/resources/"
+        shell: powershell
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
