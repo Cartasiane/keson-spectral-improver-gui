@@ -251,7 +251,29 @@ pub async fn invoke_whatsmybitrate(
 
     let exe_final = exe_path.ok_or("Bundled whatsmybitrate not found and dev script missing")?;
     let exe_clone = exe_final.clone();
-    let envs = get_env_with_resources(app);
+    
+    // Explicitly add FFPROBE_PATH to envs if we can find the resource
+    let mut envs = get_env_with_resources(app);
+    if let Some(ffprobe_path) = get_resource_path(app, "ffprobe") {
+        #[cfg(windows)]
+        let ffprobe_bin_name = "ffprobe.exe";
+        #[cfg(not(windows))]
+        let ffprobe_bin_name = "ffprobe";
+
+        // get_resource_path might point to the directory or the file depending on how we called it?
+        // In get_resource_path implementation: 
+        // "let nested = res_dir.join("resources").join(name);"
+        // If name is "ffprobe", it points to .../resources/ffprobe 
+        // which might be the file itself if we bundled it as `resources/ffprobe`.
+        // Let's verify if it exists as a file or directory.
+        // Usually bundled resources are files.
+        // But let's be safe. If it's a dir, append binary name?
+        // Actually, looking at `extract_metadata_from_file`:
+        // let ffprobe_cmd = get_resource_path(app, "ffprobe")...
+        // It treats it as the command path.
+        // So we can just use it directly.
+        envs.insert("FFPROBE_PATH".to_string(), ffprobe_path.to_string_lossy().to_string());
+    }
 
     // Run bundled executable
     tauri::async_runtime::spawn_blocking(move || {

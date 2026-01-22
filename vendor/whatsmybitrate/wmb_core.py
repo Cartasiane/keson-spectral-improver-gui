@@ -41,7 +41,7 @@ def suppress_stderr():
             os.close(saved)
 
 class AudioFile:
-    ffprobe_path = "ffprobe"
+    ffprobe_path = os.environ.get("FFPROBE_PATH", "ffprobe")
 
     def __init__(self, file_path):
         self.path = file_path
