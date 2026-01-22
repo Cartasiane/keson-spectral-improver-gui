@@ -335,16 +335,21 @@ pub fn analyze_with_wmb_single(
         if let Some(h) = &hash {
             if let Ok(guard) = cache.lock() {
                 if let Some(entry) = guard.get(h) {
-                    let status = match (entry.bitrate, entry.is_lossless) {
-                        (Some(b), _) if b < min => "bad".to_string(),
-                        (Some(_), _) => "ok".to_string(),
-                        (None, Some(true)) => "ok".to_string(), // FLAC/lossless = ok
-                        (None, _) => {
-                            eprintln!("[scan] Cached entry has no bitrate for {:?}, note: {:?}", path, entry.note);
-                            "error".to_string()
-                        }
-                    };
-                    return Ok((entry.bitrate, entry.is_lossless, entry.note.clone(), status));
+                    // Check if entry is valid (has bitrate OR is lossless)
+                    let is_valid_entry = entry.bitrate.is_some() || entry.is_lossless.unwrap_or(false);
+                    
+                    if is_valid_entry {
+                        let status = match (entry.bitrate, entry.is_lossless) {
+                            (Some(b), _) if b < min => "bad".to_string(),
+                            (Some(_), _) => "ok".to_string(), 
+                            (None, Some(true)) => "ok".to_string(), // Lossless
+                            _ => "ok".to_string(), // Should be covered by is_valid_entry
+                        };
+                        return Ok((entry.bitrate, entry.is_lossless, entry.note.clone(), status));
+                    } else {
+                        // Entry exists but is incomplete (failed analysis) - ignore it and re-scan
+                        // println!("[scan] Ignoring incomplete cache entry for {:?}", path);
+                    }
                 }
             }
         }
@@ -384,7 +389,11 @@ pub fn analyze_with_wmb_single(
         }
     };
 
-    if cache_enabled {
+    // Only cache if analysis was successful (has bitrate OR is lossless)
+    // AND there was no error
+    let analysis_successful = (est.is_some() || lossless.unwrap_or(false)) && err.is_none();
+
+    if cache_enabled && analysis_successful {
         if let Some(h) = hash {
             if let Ok(mut guard) = cache.lock() {
                 guard.insert(
