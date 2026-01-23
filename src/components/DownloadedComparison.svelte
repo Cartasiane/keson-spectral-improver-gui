@@ -23,14 +23,19 @@
   }
 
   function getFilename(path) {
-    return path?.split("/").pop() || "Unknown";
+    return path?.split(/[/\\]/).pop() || "Unknown";
   }
 
   function getBackupPath(originalPath) {
     if (!originalPath) return null;
-    const parts = originalPath.split("/");
+    // Split by either / or \ to handle Windows paths
+    const parts = originalPath.split(/[/\\]/);
     const filename = parts.pop();
-    return [...parts, "backup-ksi", filename].join("/");
+    // Rejoin with the detected separator or default to /
+    // Using / is generally safe in JS contexts, but to preserve OS style we can try:
+    const isWindows = originalPath.includes("\\");
+    const sep = isWindows ? "\\" : "/";
+    return [...parts, "backup-ksi", filename].join(sep);
   }
 
   async function handleRevert(item) {
@@ -192,28 +197,6 @@
 <style>
   .comparison-section {
     margin: 20px 0;
-  }
-
-  .section-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 16px;
-  }
-
-  .section-header h3 {
-    margin: 0;
-    font-size: 1.1rem;
-    font-weight: 600;
-  }
-
-  .badge.success {
-    background: linear-gradient(135deg, #10b981, #059669);
-    color: white;
-    padding: 4px 10px;
-    border-radius: 12px;
-    font-size: 0.85rem;
-    font-weight: 600;
   }
 
   .comparison-grid {

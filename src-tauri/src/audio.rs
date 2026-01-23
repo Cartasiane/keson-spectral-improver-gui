@@ -265,6 +265,14 @@ pub async fn invoke_whatsmybitrate(
              return tauri::async_runtime::spawn_blocking(move || {
                  let python = "python3";
                  let mut cmd = Command::new(python);
+                 
+                 #[cfg(windows)]
+                 {
+                     use std::os::windows::process::CommandExt;
+                     const CREATE_NO_WINDOW: u32 = 0x08000000;
+                     cmd.creation_flags(CREATE_NO_WINDOW);
+                 }
+
                  cmd.arg(&script_path_clone);
                  for arg in args {
                      cmd.arg(arg);
@@ -290,24 +298,12 @@ pub async fn invoke_whatsmybitrate(
     
     // Explicitly add FFPROBE_PATH to envs if we can find the resource
     let mut envs = get_env_with_resources(app);
-    if let Some(ffprobe_path) = get_resource_path(app, "ffprobe") {
-        #[cfg(windows)]
-        let ffprobe_bin_name = "ffprobe.exe";
-        #[cfg(not(windows))]
-        let ffprobe_bin_name = "ffprobe";
+    #[cfg(windows)]
+    let ffprobe_name = "ffprobe.exe";
+    #[cfg(not(windows))]
+    let ffprobe_name = "ffprobe";
 
-        // get_resource_path might point to the directory or the file depending on how we called it?
-        // In get_resource_path implementation: 
-        // "let nested = res_dir.join("resources").join(name);"
-        // If name is "ffprobe", it points to .../resources/ffprobe 
-        // which might be the file itself if we bundled it as `resources/ffprobe`.
-        // Let's verify if it exists as a file or directory.
-        // Usually bundled resources are files.
-        // But let's be safe. If it's a dir, append binary name?
-        // Actually, looking at `extract_metadata_from_file`:
-        // let ffprobe_cmd = get_resource_path(app, "ffprobe")...
-        // It treats it as the command path.
-        // So we can just use it directly.
+    if let Some(ffprobe_path) = get_resource_path(app, ffprobe_name) {
         envs.insert("FFPROBE_PATH".to_string(), ffprobe_path.to_string_lossy().to_string());
     }
 
@@ -315,6 +311,14 @@ pub async fn invoke_whatsmybitrate(
     tauri::async_runtime::spawn_blocking(move || {
          let mut cmd = Command::new(&exe_clone);
          cmd.envs(&envs);
+
+         #[cfg(windows)]
+         {
+             use std::os::windows::process::CommandExt;
+             const CREATE_NO_WINDOW: u32 = 0x08000000;
+             cmd.creation_flags(CREATE_NO_WINDOW);
+         }
+
          for arg in args {
              cmd.arg(arg);
          }

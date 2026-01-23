@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 use tauri::{async_runtime, Emitter, Manager};
 use walkdir::WalkDir;
 
-use audio::{analyze_with_wmb_single, analyze_file_quality, extract_metadata_from_file, get_resource_path, get_env_with_resources, is_audio, probe_bitrate, probe_duration, run_ffmpeg_sidecar};
+use audio::{analyze_with_wmb_single, analyze_file_quality, extract_metadata_from_file, is_audio, probe_bitrate, probe_duration, run_ffmpeg_sidecar};
 use cache::{cache_path, load_cache, save_cache};
 pub use settings::{get_settings, load_settings, save_settings};
 use types::{DownloadResult, QueueStats, RedownloadResult, ScanResult};
@@ -696,6 +696,15 @@ fn main() {
             #[cfg(feature = "with-updater")]
             {
                 app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+            }
+
+            // Windows-specific: Disable decorations for custom title bar
+            #[cfg(target_os = "windows")]
+            {
+                use tauri::Manager;
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.set_decorations(false);
+                }
             }
             Ok(())
         })

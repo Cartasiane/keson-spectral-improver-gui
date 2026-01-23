@@ -4,7 +4,13 @@ import zipfile
 import tarfile
 import shutil
 import platform
-import py7zr
+import sys
+
+try:
+    import py7zr
+except ImportError:
+    print("Error: py7zr is not installed. Please install it using 'pip install py7zr'")
+    sys.exit(1)
 
 # Configuration
 BINARIES_DIR = os.path.abspath("src-tauri/binaries")
@@ -46,47 +52,18 @@ def download_file(url, dest):
         print(f"Error downloading {url}: {e}")
         return False
 
-def extract_and_install(key, archive_path):
+def extract_and_install(key, archive_path, temp_dir):
     print(f"Processing {key}...")
     config = URLS[key]
     
     try:
         if config["ext"] == "7z":
             with py7zr.SevenZipFile(archive_path, 'r') as z:
-                extract_path = os.path.dirname(archive_path)
-                z.extractall(path=extract_path)
-                found = False
-                for root, dirs, files in os.walk(extract_path):
-                    if config["inner_file"] in files:
-                        src_path = os.path.join(root, config["inner_file"])
-                        dest_path = os.path.join(BINARIES_DIR, config["target"])
-                        shutil.copy(src_path, dest_path)
-                        os.chmod(dest_path, 0o755)
-                        print(f"Installed {config['target']}")
-                        found = True
-                        break
-                if not found:
-                    print(f"Error: {config['inner_file']} not found in 7z archive")
-
-        # Extract specific files
-        elif "macos" in key:
-             # Simple zip with single file at root
-            with zipfile.ZipFile(archive_path, 'r') as zf:
-                src_path = config["inner_file"]
-                dest_path = os.path.join(BINARIES_DIR, config["target"])
-                
-                with zf.open(src_path) as source, open(dest_path, "wb") as target:
-                    shutil.copyfileobj(source, target)
-                os.chmod(dest_path, 0o755)
-                print(f"Installed {config['target']}")
-
-        elif config["ext"] == "7z":
-            with py7zr.SevenZipFile(archive_path, 'r') as z:
                 z.extractall(path=temp_dir)
-                # Assuming flat extract or finding file
-                # Search for the binary in extracted folder
+                
+                # Check directly in temp_dir or recursively
                 found = False
-                for root, dirs, files in os.walk(temp_dir):
+                for root, _, files in os.walk(temp_dir):
                     if config["inner_file"] in files:
                         src_path = os.path.join(root, config["inner_file"])
                         dest_path = os.path.join(BINARIES_DIR, config["target"])
@@ -100,15 +77,33 @@ def extract_and_install(key, archive_path):
 
         elif config["ext"] == "zip":
             with zipfile.ZipFile(archive_path, 'r') as zf:
-                for binary in ["ffmpeg.exe", "ffprobe.exe"]:
-                    src_path = f"{config['inner_dir']}/{binary}"
-                    dest_name = config["target_ffmpeg"] if "ffmpeg" in binary else config["target_ffprobe"]
-                    dest_path = os.path.join(BINARIES_DIR, dest_name)
-                    
-                    with zf.open(src_path) as source, open(dest_path, "wb") as target:
-                        shutil.copyfileobj(source, target)
-                    print(f"Installed {dest_name}")
-                    
+                # Handle Windows FFmpeg (nested in inner_dir)
+                if "win64" in key:
+                    for binary in ["ffmpeg.exe", "ffprobe.exe"]:
+                        src_path = f"{config['inner_dir']}/{binary}"
+                        dest_name = config["target_ffmpeg"] if "ffmpeg" in binary else config["target_ffprobe"]
+                        dest_path = os.path.join(BINARIES_DIR, dest_name)
+                        
+                        try:
+                            with zf.open(src_path) as source, open(dest_path, "wb") as target:
+                                shutil.copyfileobj(source, target)
+                            print(f"Installed {dest_name}")
+                        except KeyError:
+                            print(f"Error: {src_path} not found in zip")
+                            
+                # Handle MacOS FFmpeg (single file at root or slightly different)
+                elif "macos" in key:
+                    src_path = config["inner_file"]
+                    dest_path = os.path.join(BINARIES_DIR, config["target"])
+                    try:
+                         # MacOS ffmpeg zip from evermeet usually has the binary at root
+                        with zf.open(src_path) as source, open(dest_path, "wb") as target:
+                            shutil.copyfileobj(source, target)
+                        os.chmod(dest_path, 0o755)
+                        print(f"Installed {config['target']}")
+                    except KeyError:
+                        print(f"Error: {src_path} not found in zip")
+
         elif config["ext"] == "tar.xz":
             with tarfile.open(archive_path, 'r:xz') as tf:
                 for binary in ["ffmpeg", "ffprobe"]:
@@ -116,14 +111,17 @@ def extract_and_install(key, archive_path):
                     dest_name = config["target_ffmpeg"] if "ffmpeg" in binary else config["target_ffprobe"]
                     dest_path = os.path.join(BINARIES_DIR, dest_name)
                     
-                    member = tf.getmember(src_path)
-                    if member:
-                        f = tf.extractfile(member)
-                        with open(dest_path, "wb") as target:
-                            shutil.copyfileobj(f, target)
-                        # Set executable permissions
-                        os.chmod(dest_path, 0o755)
-                        print(f"Installed {dest_name}")
+                    try:
+                        member = tf.getmember(src_path)
+                        if member:
+                            f = tf.extractfile(member)
+                            if f:
+                                with open(dest_path, "wb") as target:
+                                    shutil.copyfileobj(f, target)
+                                os.chmod(dest_path, 0o755)
+                                print(f"Installed {dest_name}")
+                    except KeyError:
+                         print(f"Error: {src_path} not found in tar")
 
     except Exception as e:
         print(f"Error processing {key}: {e}")
@@ -135,16 +133,36 @@ def main():
     temp_dir = "temp_downloads"
     if not os.path.exists(temp_dir):
         os.makedirs(temp_dir)
-        
-    for key, config in URLS.items():
+    
+    current_os = platform.system()
+    keys_to_process = []
+    
+    if current_os == "Windows":
+        keys_to_process = ["win64"]
+    elif current_os == "Linux":
+        keys_to_process = ["linux64"]
+    elif current_os == "Darwin":
+        keys_to_process = ["macos_intel_ffmpeg", "macos_intel_ffprobe"]
+    else:
+        print(f"Unsupported OS: {current_os}")
+        return
+
+    print(f"Detected OS: {current_os}. Processing keys: {keys_to_process}")
+
+    for key in keys_to_process:
+        config = URLS[key]
         filename = f"{key}.{config['ext']}"
         filepath = os.path.join(temp_dir, filename)
         
         if download_file(config["url"], filepath):
-            extract_and_install(key, filepath)
+            extract_and_install(key, filepath, temp_dir)
             
     # Cleanup
-    shutil.rmtree(temp_dir)
+    try:
+        shutil.rmtree(temp_dir)
+    except Exception as e:
+        print(f"Warning: Could not remove temp dir: {e}")
+        
     print("Done!")
 
 if __name__ == "__main__":

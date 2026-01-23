@@ -4,7 +4,9 @@
   import SettingsModal from "./components/SettingsModal.svelte";
   import RegistrationModal from "./components/RegistrationModal.svelte";
   import UpdateNotification from "./components/UpdateNotification.svelte";
+  import TitleBar from "./components/TitleBar.svelte";
   import { onMount } from "svelte";
+  import { type as osType } from "@tauri-apps/plugin-os";
   import { invoke } from "@tauri-apps/api/core";
   import { fetchSettings, persistSettings } from "./services/settingsService";
   import { isDesktop } from "./services/scanService";
@@ -12,6 +14,7 @@
 
   let activeTab = "quality";
   let showSettings = false;
+  let isWindows = false;
   let settings = {
     min_bitrate: 256,
     analysis_window_seconds: 100,
@@ -36,7 +39,11 @@
   let updateProgress = 0;
   let updateDismissed = false;
 
-  onMount(() => {
+  onMount(async () => {
+    if (isDesktop) {
+      const type = await osType();
+      isWindows = type === "windows" || type === "linux"; // Also show on Linux as it usually benefits
+    }
     loadSettings();
     checkAuth();
     const { cleanup } = startMatrix(matrixCanvas);
@@ -163,7 +170,14 @@
   />
 {/if}
 
-<main class="app">
+{#if isWindows}
+  <TitleBar />
+{/if}
+
+<main
+  class="app"
+  style={isWindows ? "padding-top: 50px;" : "padding-top: 20px;"}
+>
   <header class="hero" data-tauri-drag-region>
     <div>
       <p class="eyebrow">Keson</p>

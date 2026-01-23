@@ -53,7 +53,7 @@
     <div class="modal" on:click|stopPropagation role="document">
       <h3><Link size={20} /> Piste non trouvée</h3>
       <p class="muted">
-        "{track.name || track.path.split("/").pop()}" n'a pas été trouvé
+        "{track.name || track.path.split(/[/\\]/).pop()}" n'a pas été trouvé
         automatiquement.
       </p>
       <p>Entrez une URL Tidal ou SoundCloud :</p>

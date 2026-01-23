@@ -47,7 +47,12 @@
     "security": {
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APP/**", "$RESOURCE/**", "$TEMP/**", "$HOME/**"]
+        "scope": [
+          "$APP/**",
+          "$RESOURCE/**",
+          "$TEMP/**",
+          "$HOME/**"
+        ]
       }
     },
     "windows": [
