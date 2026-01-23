@@ -112,7 +112,17 @@
       </span>
     {/if}
   </div>
-  <div class="path" title={item.path}>{item.path}</div>
+  <div
+    class="path"
+    class:has-error={item.status === "error"}
+    title={item.status === "error" ? item.note || "Erreur inconnue" : item.path}
+  >
+    {#if item.status === "error"}
+      <span class="error-msg">{item.note || "Erreur inconnue"}</span>
+    {:else}
+      {item.path}
+    {/if}
+  </div>
   <div class="actions actions-inline">
     {#if downloadStatus === "no-match"}
       <!-- Inline URL input for failed matches -->
@@ -243,5 +253,16 @@
     margin-left: 6px;
     color: #8b5cf6;
     vertical-align: middle;
+  }
+
+  .error-msg {
+    color: #ef4444;
+    font-weight: 500;
+  }
+
+  .path.has-error {
+    white-space: normal;
+    overflow: visible;
+    word-break: break-all; /* Ensure long error codes break */
   }
 </style>

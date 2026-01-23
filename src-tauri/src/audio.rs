@@ -76,10 +76,17 @@ pub fn get_resource_path(app: &tauri::AppHandle, name: &str) -> Option<PathBuf> 
     // Check direct path (dev mode often)
     let direct = res_dir.join(name);
     if direct.exists() {
-        return Some(direct);
+        // For whatsmybitrate, we explicitly want the directory, not a stray binary file in target root
+        if name == "whatsmybitrate" {
+            if direct.is_dir() {
+                return Some(direct);
+            }
+        } else {
+            return Some(direct);
+        }
     }
 
-    // Check resources subdir (prod bundle often)
+    // Check resources subdir (prod bundle often, and correctly placed in debug/resources)
     let nested = res_dir.join("resources").join(name);
     if nested.exists() {
         return Some(nested);
@@ -101,23 +108,39 @@ pub fn get_resource_path(app: &tauri::AppHandle, name: &str) -> Option<PathBuf> 
 pub fn get_env_with_resources(app: &tauri::AppHandle) -> HashMap<String, String> {
     let mut envs = std::env::vars().collect::<HashMap<_, _>>();
     
+    // Get the directory where the current executable is running
+    // In dev: target/debug/
+    // In prod: Bundle content directory
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()));
+
     if let Ok(resource_dir) = app.path().resource_dir() {
         if let Ok(current_path) = std::env::var("PATH") {
-            // Add both resource_dir and resource_dir/resources to PATH to cover all bases
+            // Add resource_dir, resource_dir/resources, and exe_dir to PATH
             let nested_res = resource_dir.join("resources");
             
-            #[cfg(unix)]
-            let new_path = format!("{}:{}:{}", 
-                resource_dir.to_string_lossy(), 
-                nested_res.to_string_lossy(),
-                current_path
-            );
+            let mut paths = vec![
+                resource_dir.to_path_buf(),
+                nested_res,
+            ];
+            
+            if let Some(ed) = exe_dir {
+                paths.push(ed);
+            }
+            
+            // Re-construct PATH safely
+             #[cfg(unix)]
+            let separator = ":";
             #[cfg(windows)]
-            let new_path = format!("{};{};{}", 
-                resource_dir.to_string_lossy(), 
-                nested_res.to_string_lossy(), 
-                current_path
-            );
+            let separator = ";";
+
+            let extra_paths = paths.iter()
+                .map(|p| p.to_string_lossy().to_string())
+                .collect::<Vec<_>>()
+                .join(separator);
+                
+            let new_path = format!("{}{}{}", extra_paths, separator, current_path);
             
             envs.insert("PATH".to_string(), new_path);
         }

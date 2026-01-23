@@ -16,8 +16,11 @@
 *,
 *::before,
 *::after {
-  box-sizing: border-box;
   border-radius: 0 !important;
+}
+
+::-webkit-scrollbar {
+  display: none;
 }
 
 html {
@@ -27,7 +30,11 @@ html {
 
 body {
   margin: 0;
-  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  font-family:
+    "Inter",
+    system-ui,
+    -apple-system,
+    sans-serif;
   background: var(--bg);
   color: var(--text);
   position: relative;
@@ -52,8 +59,6 @@ body {
   z-index: 0;
 }
 
-
-
 .app {
   max-width: 960px;
   margin: 0 auto 48px;
@@ -70,7 +75,8 @@ body {
   grid-template-columns: 1fr auto;
   column-gap: 18px;
   align-items: start;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.6),
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.6),
     0 12px 28px rgba(0, 0, 0, 0.45);
 }
 
@@ -155,7 +161,9 @@ body {
   color: var(--text);
   padding: 10px 12px;
   cursor: pointer;
-  transition: transform 0.08s ease, box-shadow 0.12s ease;
+  transition:
+    transform 0.08s ease,
+    box-shadow 0.12s ease;
   box-shadow: 0 0 12px rgba(57, 255, 20, 0.35);
   font-family: "VT323", "Inter", monospace;
   letter-spacing: 0.08em;
@@ -230,7 +238,9 @@ body {
   border: 1px solid rgba(57, 255, 20, 0.2);
   padding: 16px;
   margin-top: 0;
-  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(57, 255, 20, 0.14);
+  box-shadow:
+    0 14px 38px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(57, 255, 20, 0.14);
 }
 
 .fields {

@@ -691,18 +691,18 @@ fn main() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
-        .setup(|app| {
+        .setup(|_app| {
             // Only register updater plugin if with-updater feature is enabled
             #[cfg(feature = "with-updater")]
             {
-                app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+                _app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
             }
 
             // Windows-specific: Disable decorations for custom title bar
             #[cfg(target_os = "windows")]
             {
                 use tauri::Manager;
-                if let Some(window) = app.get_webview_window("main") {
+                if let Some(window) = _app.get_webview_window("main") {
                     let _ = window.set_decorations(false);
                 }
             }

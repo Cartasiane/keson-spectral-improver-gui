@@ -14,7 +14,7 @@
 
   let activeTab = "quality";
   let showSettings = false;
-  let isWindows = false;
+  let showTitleBar = false;
   let settings = {
     min_bitrate: 256,
     analysis_window_seconds: 100,
@@ -42,7 +42,7 @@
   onMount(async () => {
     if (isDesktop) {
       const type = await osType();
-      isWindows = type === "windows" || type === "linux"; // Also show on Linux as it usually benefits
+      showTitleBar = true; // Use custom titlebar on all desktop platforms since decorations are hidden
     }
     loadSettings();
     checkAuth();
@@ -170,13 +170,13 @@
   />
 {/if}
 
-{#if isWindows}
+{#if showTitleBar}
   <TitleBar />
 {/if}
 
 <main
   class="app"
-  style={isWindows ? "padding-top: 50px;" : "padding-top: 20px;"}
+  style={showTitleBar ? "padding-top: 50px;" : "padding-top: 20px;"}
 >
   <header class="hero" data-tauri-drag-region>
     <div>

@@ -23,7 +23,7 @@
       "icons/icon_128.png",
       "icons/icon_256.png"
     ],
-    "createUpdaterArtifacts": "v1Compatible"
+    "createUpdaterArtifacts": false
   },
   "build": {
     "beforeBuildCommand": "npm run build",
@@ -62,8 +62,7 @@
         "height": 780,
         "useHttpsScheme": false,
         "devtools": true,
-        "titleBarStyle": "Overlay",
-        "hiddenTitle": true
+        "decorations": false
       }
     ]
   }
