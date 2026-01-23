@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 use tauri::{async_runtime, Emitter, Manager};
 use walkdir::WalkDir;
 
-use audio::{analyze_with_wmb_single, analyze_file_quality, extract_metadata_from_file, get_resource_path, get_env_with_resources, is_audio, probe_bitrate, probe_duration};
+use audio::{analyze_with_wmb_single, analyze_file_quality, extract_metadata_from_file, get_resource_path, get_env_with_resources, is_audio, probe_bitrate, probe_duration, run_ffmpeg_sidecar};
 use cache::{cache_path, load_cache, save_cache};
 pub use settings::{get_settings, load_settings, save_settings};
 use types::{DownloadResult, QueueStats, RedownloadResult, ScanResult};
@@ -264,7 +264,7 @@ fn download_via_api(
     })
 }
 
-/// Extract embedded cover from audio file using ffmpeg (helper function, not a command)
+/// Extract embedded cover from audio file using ffmpeg sidecar (helper function, not a command)
 fn extract_embedded_cover(audio_path: &str, app: &tauri::AppHandle) -> Result<Option<String>, String> {
     let path = PathBuf::from(audio_path);
     if !path.exists() {
@@ -279,23 +279,18 @@ fn extract_embedded_cover(audio_path: &str, app: &tauri::AppHandle) -> Result<Op
         return Ok(Some(output_path.to_string_lossy().to_string()));
     }
 
-    // Determine ffmpeg command (bundled or system)
-    let ffmpeg_cmd = get_resource_path(app, "ffmpeg")
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|| "ffmpeg".to_string());
+    let output_path_str = output_path.to_string_lossy().to_string();
+    let args = vec![
+        "-y",
+        "-i", audio_path,
+        "-an",
+        "-vcodec", "copy",
+        &output_path_str,
+    ];
+    
+    let success = run_ffmpeg_sidecar(app, args)?;
 
-    let status = Command::new(&ffmpeg_cmd)
-        .args([
-            "-y",
-            "-i", audio_path,
-            "-an",
-            "-vcodec", "copy",
-            output_path.to_string_lossy().as_ref(),
-        ])
-        .output()
-        .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
-
-    if !status.status.success() {
+    if !success {
         return Ok(None);
     }
 

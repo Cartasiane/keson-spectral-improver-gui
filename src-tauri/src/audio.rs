@@ -8,9 +8,66 @@ use std::process::Command;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
+use tauri_plugin_shell::ShellExt;
 
 use crate::types::{CacheEntry, ExtractedMetadata};
 use crate::cache::enforce_cache_limit;
+
+/// Run ffprobe sidecar with given arguments, returns stdout as bytes
+pub fn run_ffprobe_sidecar(app: &tauri::AppHandle, args: Vec<&str>) -> Result<Vec<u8>, String> {
+    // Try sidecar first (bundled binary)
+    if let Ok(sidecar) = app.shell().sidecar("binaries/ffprobe") {
+        let result = tauri::async_runtime::block_on(async {
+            sidecar
+                .args(&args)
+                .output()
+                .await
+        });
+        
+        if let Ok(output) = result {
+            if output.status.success() {
+                return Ok(output.stdout);
+            }
+        }
+    }
+    
+    // Fallback to system ffprobe (dev mode or if sidecar fails)
+    let output = Command::new("ffprobe")
+        .args(&args)
+        .output()
+        .map_err(|e| format!("Failed to run ffprobe: {}", e))?;
+    
+    if output.status.success() {
+        Ok(output.stdout)
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
+/// Run ffmpeg sidecar with given arguments, returns success status
+pub fn run_ffmpeg_sidecar(app: &tauri::AppHandle, args: Vec<&str>) -> Result<bool, String> {
+    // Try sidecar first (bundled binary)
+    if let Ok(sidecar) = app.shell().sidecar("binaries/ffmpeg") {
+        let result = tauri::async_runtime::block_on(async {
+            sidecar
+                .args(&args)
+                .output()
+                .await
+        });
+        
+        if let Ok(output) = result {
+            return Ok(output.status.success());
+        }
+    }
+    
+    // Fallback to system ffmpeg (dev mode or if sidecar fails)
+    let output = Command::new("ffmpeg")
+        .args(&args)
+        .output()
+        .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
+    
+    Ok(output.status.success())
+}
 
 // Helper to get resource path, checking both root and 'resources' subdir
 pub fn get_resource_path(app: &tauri::AppHandle, name: &str) -> Option<PathBuf> {
@@ -98,82 +155,61 @@ pub fn file_hash(path: &Path) -> std::io::Result<String> {
     Ok(hex::encode(hasher.finalize()))
 }
 
-/// Extract metadata from an audio file using ffprobe
+/// Extract metadata from an audio file using ffprobe (sidecar)
 pub fn extract_metadata_from_file(path: &Path, app: &tauri::AppHandle) -> ExtractedMetadata {
-    // Determine ffprobe command (bundled or system)
-    let ffprobe_cmd = get_resource_path(app, "ffprobe")
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|| "ffprobe".to_string());
-
-    let output = Command::new(&ffprobe_cmd)
-        .args([
-            "-v", "quiet",
-            "-print_format", "json",
-            "-show_format",
-            path.to_str().unwrap_or_default(),
-        ])
-        .output();
-
     let mut metadata = ExtractedMetadata::default();
-
-    if let Ok(output) = output {
-        if output.status.success() {
-            if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
-                let format = &json["format"];
-                let tags = &format["tags"];
-                
-                if let Some(dur_str) = format["duration"].as_str() {
-                    metadata.duration = dur_str.parse().ok();
-                }
-                
-                metadata.artist = tags["artist"].as_str()
-                    .or_else(|| tags["ARTIST"].as_str())
-                    .or_else(|| tags["albumartist"].as_str())
-                    .or_else(|| tags["ALBUMARTIST"].as_str())
-                    .map(|s| s.to_string());
-                
-                metadata.title = tags["title"].as_str()
-                    .or_else(|| tags["TITLE"].as_str())
-                    .map(|s| s.to_string());
-                
-                metadata.album = tags["album"].as_str()
-                    .or_else(|| tags["ALBUM"].as_str())
-                    .map(|s| s.to_string());
-                
-                metadata.isrc = tags["isrc"].as_str()
-                    .or_else(|| tags["ISRC"].as_str())
-                    .or_else(|| tags["TSRC"].as_str())
-                    .map(|s| s.to_string());
-                
-                println!("[GUI] Extracted metadata: artist={:?}, title={:?}, duration={:?}, isrc={:?}", 
-                    metadata.artist, metadata.title, metadata.duration, metadata.isrc);
+    
+    let path_str = path.to_str().unwrap_or_default();
+    let args = vec!["-v", "quiet", "-print_format", "json", "-show_format", path_str];
+    
+    if let Ok(stdout) = run_ffprobe_sidecar(app, args) {
+        if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&stdout) {
+            let format = &json["format"];
+            let tags = &format["tags"];
+            
+            if let Some(dur_str) = format["duration"].as_str() {
+                metadata.duration = dur_str.parse().ok();
             }
+            
+            metadata.artist = tags["artist"].as_str()
+                .or_else(|| tags["ARTIST"].as_str())
+                .or_else(|| tags["albumartist"].as_str())
+                .or_else(|| tags["ALBUMARTIST"].as_str())
+                .map(|s| s.to_string());
+            
+            metadata.title = tags["title"].as_str()
+                .or_else(|| tags["TITLE"].as_str())
+                .map(|s| s.to_string());
+            
+            metadata.album = tags["album"].as_str()
+                .or_else(|| tags["ALBUM"].as_str())
+                .map(|s| s.to_string());
+            
+            metadata.isrc = tags["isrc"].as_str()
+                .or_else(|| tags["ISRC"].as_str())
+                .or_else(|| tags["TSRC"].as_str())
+                .map(|s| s.to_string());
+            
+            println!("[GUI] Extracted metadata: artist={:?}, title={:?}, duration={:?}, isrc={:?}", 
+                metadata.artist, metadata.title, metadata.duration, metadata.isrc);
         }
     }
 
     metadata
 }
 
-/// Probe duration of an audio file using ffprobe
+/// Probe duration of an audio file using ffprobe (sidecar)
 pub fn probe_duration(path: &Path, app: &tauri::AppHandle) -> Option<f64> {
-    let ffprobe_cmd = get_resource_path(app, "ffprobe")
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|| "ffprobe".to_string());
-
-    let output = Command::new(&ffprobe_cmd)
-        .args([
-            "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            path.to_string_lossy().as_ref(),
-        ])
-        .output()
-        .ok()?;
-
-    if !output.status.success() {
-        return None;
-    }
-    let text = String::from_utf8_lossy(&output.stdout);
+    let path_str = path.to_string_lossy();
+    let args = vec![
+        "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        &path_str,
+    ];
+    
+    let stdout = run_ffprobe_sidecar(app, args).ok()?;
+    let text = String::from_utf8_lossy(&stdout);
     let line = text.lines().next()?.trim();
     f64::from_str(line).ok()
 }

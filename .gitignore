@@ -21,3 +21,8 @@ vendor/whatsmybitrate/build/
 vendor/whatsmybitrate/dist/
 vendor/whatsmybitrate/__pycache__/
 src-tauri/resources/whatsmybitrate/
+
+# FFmpeg binaries (downloaded/generated)
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
+!src-tauri/binaries/*-apple-darwin*

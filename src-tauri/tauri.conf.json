@@ -4,9 +4,11 @@
     "active": true,
     "targets": "all",
     "resources": [
-      "resources/whatsmybitrate",
-      "resources/ffmpeg*",
-      "resources/ffprobe*"
+      "resources/whatsmybitrate"
+    ],
+    "externalBin": [
+      "binaries/ffmpeg",
+      "binaries/ffprobe"
     ],
     "macOS": {
       "minimumSystemVersion": "10.13",
