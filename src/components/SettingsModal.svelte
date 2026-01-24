@@ -1,11 +1,20 @@
 <script>
   import { createEventDispatcher } from "svelte";
+  import { invoke } from "@tauri-apps/api/core";
 
   export let settings;
   export let loading = false;
   export let message = "";
 
   const dispatch = createEventDispatcher();
+
+  async function openLogs() {
+    try {
+      await invoke("open_logs_folder");
+    } catch (e) {
+      alert("Erreur: " + e);
+    }
+  }
 
   function updateSetting(key, value) {
     settings = { ...settings, [key]: value };
@@ -109,6 +118,9 @@
     class="actions"
     style="justify-content:flex-end; gap:8px; margin-top:10px;"
   >
+    <button class="btn secondary" style="margin-right:auto" on:click={openLogs}
+      >Ouvrir les logs</button
+    >
     <button class="btn ghost" on:click={() => dispatch("close")}>Annuler</button
     >
     <button

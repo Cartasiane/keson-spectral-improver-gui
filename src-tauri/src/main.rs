@@ -200,7 +200,7 @@ fn download_via_api(
     let (quality, analyzed_bitrate) = match quality_result {
         Ok(result) => (result.quality_string, result.bitrate),
         Err(e) => {
-            println!("[download] Quality analysis failed: {}", e);
+            log::info!("[download] Quality analysis failed: {}", e);
             ("Unknown".to_string(), None)
         }
     };
@@ -370,7 +370,7 @@ async fn scan_folder(
                 let (bitrate, is_lossless, note, status) = match analysis {
                     Ok(res) => res,
                     Err(err) => {
-                        eprintln!("[scan] Analysis FAILED for {:?}: {}", path, err);
+                        log::error!("[scan] Analysis FAILED for {:?}: {}", path, err);
                         (None, None, Some(err), "error".to_string())
                     }
                 };
@@ -460,6 +460,40 @@ async fn open_file(path: String) -> Result<(), String> {
     {
         Command::new("cmd")
             .args(["/c", "start", "", &path.replace('/', "\\")])
+            .status()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("xdg-open")
+            .arg(&path)
+            .status()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn open_logs_folder(app: tauri::AppHandle) -> Result<(), String> {
+    let log_dir = app.path().app_log_dir().map_err(|e| e.to_string())?;
+    
+    if !log_dir.exists() {
+        return Err("Dossier de logs introuvable".into());
+    }
+
+    let path = log_dir.to_string_lossy().to_string();
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(&path)
+            .status()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .arg(&path.replace('/', "\\"))
             .status()
             .map_err(|e| e.to_string())?;
     }
@@ -626,14 +660,14 @@ async fn check_auth_status(app: tauri::AppHandle) -> Result<AuthStatus, String> 
             }
             Some(false) => {
                 // Token explicitly invalid (401) - clear it
-                println!("[auth] Token rejected by server (401), clearing token");
+                log::info!("[auth] Token rejected by server (401), clearing token");
                 let mut new_settings = settings.clone();
                 new_settings.client_token = None;
                 let _ = save_settings(app.clone(), new_settings);
             }
             None => {
                 // Server unreachable - assume token is still valid, don't clear it
-                println!("[auth] Server unreachable, assuming token is valid");
+                log::info!("[auth] Server unreachable, assuming token is valid");
                 return Ok(AuthStatus {
                     registered: true,
                     invite_required: false,
@@ -684,6 +718,7 @@ fn main() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_log::Builder::default().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -724,8 +759,10 @@ fn main() {
             revert_replacement,
             extract_cover,
             register_client,
-            check_auth_status
+            check_auth_status,
+            open_logs_folder
         ])
+
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -765,7 +802,7 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
             .build()
             .map_err(|e| format!("Client build failed: {e}"))?;
         
-        println!("[GUI] Using Core API: {}", CORE_API_URL);
+        log::info!("[GUI] Using Core API: {}", CORE_API_URL);
         let mut downloaded = Vec::new();
 
         for path_str in paths {
@@ -779,7 +816,7 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
                 .map(PathBuf::from)
                 .ok_or_else(|| "Chemin sans dossier".to_string())?;
 
-            println!("[GUI] Redownload Query for: '{}' (source: {}, backup: {})", stem, source, backup);
+            log::info!("[GUI] Redownload Query for: '{}' (source: {}, backup: {})", stem, source, backup);
 
             let file_metadata = extract_metadata_from_file(&path, &app);
 
@@ -790,7 +827,7 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
                 .join(" - ");
             let clean_query = if clean_query.is_empty() { stem.to_string() } else { clean_query };
             
-            println!("[GUI] Search query (cleaned): '{}'", clean_query);
+            log::info!("[GUI] Search query (cleaned): '{}'", clean_query);
 
             let search_payload = serde_json::json!({
                 "query": clean_query,
@@ -817,24 +854,24 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
                             if let Some(url) = json["url"].as_str() {
                                 let detected_source = json["source"].as_str().unwrap_or("tidal");
                                 let score = json["score"].as_f64().unwrap_or(0.0);
-                                println!("[GUI] Found on {}: {} (score: {})", detected_source, url, score);
+                                log::info!("[GUI] Found on {}: {} (score: {})", detected_source, url, score);
                                 download_target = Some(url.to_string());
                                 cover_url = json["cover_url"].as_str().map(|s| s.to_string());
-                                println!("[GUI] Found on {}: {} (score: {}, cover: {:?})", detected_source, url, score, cover_url);
+                                log::info!("[GUI] Found on {}: {} (score: {}, cover: {:?})", detected_source, url, score, cover_url);
                                 source_type = if detected_source == "soundcloud" { "soundcloud" } else { "tidal" };
                             }
                         } else {
-                            println!("[GUI] No confident match found for: {}", stem);
+                            log::info!("[GUI] No confident match found for: {}", stem);
                         }
                     }
                 }
-                Err(e) => eprintln!("[GUI] Search request failed: {}", e),
+                Err(e) => log::error!("[GUI] Search request failed: {}", e),
             }
 
             let download_url = match download_target {
                 Some(url) => url,
                 None => {
-                    eprintln!("[GUI] Skipping '{}' - no automatic match", stem);
+                    log::error!("[GUI] Skipping '{}' - no automatic match", stem);
                     continue;
                 }
             };
@@ -851,7 +888,7 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
                     Ok(resp) => {
                         if !resp.status().is_success() {
                             let err_text = resp.text().unwrap_or_default();
-                            eprintln!("[GUI] Download request failed: {}", err_text);
+                            log::error!("[GUI] Download request failed: {}", err_text);
                             continue;
                         }
 
@@ -863,7 +900,7 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
                                         .map(|s| s.to_string())
                                         .or_else(|| json["metadata"]["cover_url"].as_str().map(|s| s.to_string()));
                                     if let Some(ref c) = cover_url {
-                                         println!("[GUI] Retrieved cover from download metadata: {}", c);
+                                         log::info!("[GUI] Retrieved cover from download metadata: {}", c);
                                     }
                                 }
 
@@ -877,9 +914,12 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
                                      Ok(mut file_resp) => {
                                          if let Ok(mut file) = fs::File::create(&dest_path) {
                                              if let Err(e) = file_resp.copy_to(&mut file) {
-                                                 eprintln!("[GUI] Failed to write file: {}", e);
+                                                 log::error!("[GUI] Failed to write file: {}", e);
                                              } else {
-                                                 println!("[GUI] Downloaded to: {:?}", dest_path);
+                                                 // Explicitly sync file to disk before probing (fixes macOS race condition)
+                                                 let _ = file.sync_all();
+                                                 drop(file); // Ensure file handle is closed
+                                                 log::info!("[GUI] Downloaded to: {:?}", dest_path);
                                                  
                                                  let original_dur = probe_duration(&path, &app);
                                                  let new_dur = probe_duration(&dest_path, &app);
@@ -902,15 +942,15 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
                                                          }
                                                          let backup_path = backup_dir.join(path.file_name().unwrap_or_default());
                                                          if let Err(e) = fs::copy(&path, &backup_path) {
-                                                             eprintln!("[GUI] Failed to backup file: {}", e);
+                                                             log::error!("[GUI] Failed to backup file: {}", e);
                                                          } else {
-                                                             println!("[GUI] Backed up to: {:?}", backup_path);
+                                                             log::info!("[GUI] Backed up to: {:?}", backup_path);
                                                          }
                                                      }
                                                      if let Err(e) = fs::remove_file(&path) {
-                                                         eprintln!("[GUI] Failed to delete original: {}", e);
+                                                         log::error!("[GUI] Failed to delete original: {}", e);
                                                      } else {
-                                                         println!("[GUI] Auto-replaced original file (durations matched)");
+                                                         log::info!("[GUI] Auto-replaced original file (durations matched)");
                                                      }
                                                  }
 
@@ -918,7 +958,7 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
 
                                                  // Write KESON_REPLACED tag to mark file as replaced
                                                  if let Err(e) = tagging::write_replaced_tag(&dest_path) {
-                                                     eprintln!("[GUI] Failed to write replaced tag: {}", e);
+                                                     log::error!("[GUI] Failed to write replaced tag: {}", e);
                                                  }
 
                                                  downloaded.push(RedownloadResult {
@@ -932,12 +972,12 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
                                              }
                                          }
                                     },
-                                    Err(e) => eprintln!("[GUI] Failed to download file content: {}", e),
+                                    Err(e) => log::error!("[GUI] Failed to download file content: {}", e),
                                 }
                             }
                         }
                     },
-                    Err(e) => eprintln!("[GUI] Download API call failed: {}", e),
+                    Err(e) => log::error!("[GUI] Download API call failed: {}", e),
             }
         }
         
@@ -958,7 +998,7 @@ async fn download_with_url(original_path: String, url: String, backup: bool, app
             .build()
             .map_err(|e| format!("Client build failed: {e}"))?;
         
-        println!("[GUI] Using Core API: {}", CORE_API_URL);
+        log::info!("[GUI] Using Core API: {}", CORE_API_URL);
         
         let path = PathBuf::from(&original_path);
         let parent = path
@@ -968,7 +1008,7 @@ async fn download_with_url(original_path: String, url: String, backup: bool, app
         
         let source_type = if url.contains("tidal.com") { "tidal" } else { "soundcloud" };
         
-        println!("[GUI] Manual download from {} for: {}", source_type, original_path);
+        log::info!("[GUI] Manual download from {} for: {}", source_type, original_path);
         
         let payload = serde_json::json!({
             "url": url,
@@ -1006,15 +1046,19 @@ async fn download_with_url(original_path: String, url: String, backup: bool, app
         file_resp.copy_to(&mut file)
             .map_err(|e| format!("Failed to write file: {}", e))?;
 
-        println!("[GUI] Downloaded to: {:?}", dest_path);
+        // Explicitly sync file to disk before probing (fixes macOS race condition)
+        file.sync_all().map_err(|e| format!("Failed to sync file: {}", e))?;
+        drop(file); // Ensure file handle is closed
         
-        println!("[GUI] Probing original duration for: {:?}", path);
+        log::info!("[GUI] Downloaded to: {:?}", dest_path);
+        
+        log::info!("[GUI] Probing original duration for: {:?}", path);
         let original_dur = probe_duration(&path, &app).unwrap_or(0.0);
-        println!("[GUI] Original duration: {}", original_dur);
+        log::info!("[GUI] Original duration: {}", original_dur);
 
-        println!("[GUI] Probing new duration for: {:?}", dest_path);
+        log::info!("[GUI] Probing new duration for: {:?}", dest_path);
         let new_dur = probe_duration(&dest_path, &app).unwrap_or(0.0);
-        println!("[GUI] New duration: {}", new_dur);
+        log::info!("[GUI] New duration: {}", new_dur);
 
         if backup {
              let backup_dir = parent.join("backup-ksi");
@@ -1023,19 +1067,19 @@ async fn download_with_url(original_path: String, url: String, backup: bool, app
              }
              let backup_path = backup_dir.join(path.file_name().unwrap_or_default());
              if let Err(e) = fs::copy(&path, &backup_path) {
-                  eprintln!("[GUI] Failed to backup file: {}", e);
+                  log::error!("[GUI] Failed to backup file: {}", e);
              } else {
-                  println!("[GUI] Backed up to: {:?}", backup_path);
+                  log::info!("[GUI] Backed up to: {:?}", backup_path);
              }
              
              if let Err(e) = fs::remove_file(&path) {
-                 eprintln!("[GUI] Failed to delete original: {}", e);
+                 log::error!("[GUI] Failed to delete original: {}", e);
              } else if let Err(e) = fs::rename(&dest_path, &path) {
-                 eprintln!("[GUI] Failed to move new file to original: {}", e);
+                 log::error!("[GUI] Failed to move new file to original: {}", e);
              } else {
-                 println!("[GUI] Replaced original file");
+                 log::info!("[GUI] Replaced original file");
                  if dest_path.exists() && dest_path != path {
-                     println!("[GUI] Source file persisted after rename. Force deleting: {:?}", dest_path);
+                     log::info!("[GUI] Source file persisted after rename. Force deleting: {:?}", dest_path);
                      let _ = fs::remove_file(&dest_path);
                  }
              }
@@ -1046,7 +1090,7 @@ async fn download_with_url(original_path: String, url: String, backup: bool, app
 
         // Write KESON_REPLACED tag to mark file as replaced
         if let Err(e) = tagging::write_replaced_tag(new_file_path) {
-            eprintln!("[GUI] Failed to write replaced tag: {}", e);
+            log::error!("[GUI] Failed to write replaced tag: {}", e);
         }
 
         Ok(RedownloadResult {
@@ -1068,7 +1112,7 @@ async fn revert_replacement(original_path: String) -> Result<bool, String> {
         let filename = path.file_name().ok_or("Invalid filename")?;
         let backup_path = parent.join("backup-ksi").join(filename);
 
-        println!("[GUI] Attempting to revert: {:?} from {:?}", path, backup_path);
+        log::info!("[GUI] Attempting to revert: {:?} from {:?}", path, backup_path);
 
         if !backup_path.exists() {
             return Err("Backup file not found".to_string());
@@ -1087,43 +1131,81 @@ async fn revert_replacement(original_path: String) -> Result<bool, String> {
                   if ghost_path == path { continue; }
                   
                   if ghost_path.exists() {
-                       println!("[GUI] Revert cleanup: Removing ghost file {:?}", ghost_path);
+                       log::info!("[GUI] Revert cleanup: Removing ghost file {:?}", ghost_path);
                        let _ = fs::remove_file(ghost_path);
                   }
              }
         }
 
-        println!("[GUI] Reverted successfully");
+        log::info!("[GUI] Reverted successfully");
         Ok(true)
     }).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn accept_redownload(original: String, new_path: String) -> Result<String, String> {
+fn accept_redownload(app: tauri::AppHandle, original: String, new_path: String) -> Result<String, String> {
+    log::error!("[accept_redownload] Request to replace '{}' with '{}'", original, new_path);
     let orig = PathBuf::from(&original);
     let newp = PathBuf::from(&new_path);
 
     if !newp.exists() {
+        log::error!("[accept_redownload] New file not found: {:?}", newp);
         return Err("Fichier téléchargé introuvable".into());
     }
 
     if let Some(parent) = orig.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        if let Err(e) = fs::create_dir_all(parent) {
+            log::error!("[accept_redownload] Failed to create parent dir: {}", e);
+            return Err(e.to_string());
+        }
     }
 
     if orig.exists() {
-        let ext = orig.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let backup_ext = if ext.is_empty() {
-            "bak".to_string()
-        } else {
-            format!("bak.{}", ext)
-        };
-        let backup = orig.with_extension(backup_ext);
-        let _ = fs::rename(&orig, &backup);
+        if let Some(parent) = orig.parent() {
+            let backup_dir = parent.join("backup-ksi");
+            if !backup_dir.exists() {
+                if let Err(e) = fs::create_dir_all(&backup_dir) {
+                    log::error!("[accept_redownload] Failed to create backup dir: {}", e);
+                }
+            }
+            
+            if backup_dir.exists() {
+                let filename = orig.file_name().unwrap_or_default();
+                let backup_path = backup_dir.join(filename);
+                
+                log::error!("[accept_redownload] Backing up original to: {:?}", backup_path);
+                
+                // If backup already exists, maybe overwrite or rename? 
+                // For now, let's just overwrite backup (standard behavior for simple bak)
+                if let Err(e) = fs::rename(&orig, &backup_path) {
+                     log::error!("[accept_redownload] Backup failed: {}", e);
+                }
+            }
+        }
     }
 
-    fs::rename(&newp, &orig).map_err(|e| e.to_string())?;
-    Ok(orig.to_string_lossy().to_string())
+    log::error!("[accept_redownload] Renaming new file to original...");
+    match fs::rename(&newp, &orig) {
+        Ok(_) => {
+             log::error!("[accept_redownload] Success");
+             
+             // Invalidate cache for this file
+             let settings = load_settings(&app); // pass reference to app
+             if let Ok(path) = cache_path(&app) {
+                  let mut cache = load_cache(&path, settings.cache_max_entries);
+                  if cache.remove(&orig.to_string_lossy().to_string()).is_some() {
+                      log::error!("[accept_redownload] Invalidated cache for: {:?}", orig);
+                      let _ = save_cache(&path, &cache);
+                  }
+             }
+
+             Ok(orig.to_string_lossy().to_string())
+        },
+        Err(e) => {
+             log::error!("[accept_redownload] Rename failed: {}", e);
+             Err(e.to_string())
+        }
+    }
 }
 
 #[tauri::command]

@@ -8,62 +8,140 @@ use std::process::Command;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
-use tauri_plugin_shell::ShellExt;
 
 use crate::types::{CacheEntry, ExtractedMetadata};
 use crate::cache::enforce_cache_limit;
 
-/// Run ffprobe sidecar with given arguments, returns stdout as bytes
-pub fn run_ffprobe_sidecar(app: &tauri::AppHandle, args: Vec<&str>) -> Result<Vec<u8>, String> {
-    // Try sidecar first (bundled binary)
-    if let Ok(sidecar) = app.shell().sidecar("binaries/ffprobe") {
-        let result = tauri::async_runtime::block_on(async {
-            sidecar
-                .args(&args)
-                .output()
-                .await
-        });
-        
-        if let Ok(output) = result {
-            if output.status.success() {
-                return Ok(output.stdout);
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+/// Helper to resolve the absolute path of a bundled sidecar binary
+/// logic:
+/// 1. Check same directory as current executable (standard for Tauri bundled apps)
+/// 2. Check resource_dir/binaries/ (dev mode or alternative config)
+fn resolve_sidecar_path(app: &tauri::AppHandle, name: &str) -> Option<PathBuf> {
+    // 1. Check relative to executable (Contents/MacOS/ on Mac, or root of portable exe)
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let path = exe_dir.join(name);
+            log::error!("[sidecar] Checking exe_dir: {:?}", path);
+            if path.exists() {
+                return Some(path);
             }
         }
     }
+
+    // 2. Check resource directory (standard dev layout or Windows sometimes)
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let path = resource_dir.join("binaries").join(name);
+        log::error!("[sidecar] Checking resource_dir: {:?}", path);
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
+    None
+}
+
+/// Run ffprobe sidecar with given arguments, returns stdout as bytes
+/// Uses synchronous execution to avoid tokio runtime deadlocks
+pub fn run_ffprobe_sidecar(app: &tauri::AppHandle, args: Vec<&str>) -> Result<Vec<u8>, String> {
+    // Determine the bundled ffprobe path based on platform
+    #[cfg(target_os = "macos")]
+    let binary_name = "ffprobe";
+    #[cfg(target_os = "windows")]
+    let binary_name = "ffprobe.exe";
+    #[cfg(target_os = "linux")]
+    let binary_name = "ffprobe";
     
-    // Fallback to system ffprobe (dev mode or if sidecar fails)
-    let output = Command::new("ffprobe")
-        .args(&args)
-        .output()
+    // Try to find the bundled binary
+    if let Some(bundled_path) = resolve_sidecar_path(app, binary_name) {
+        log::error!("[ffprobe] Found bundled binary at {:?}, executing synchronously...", bundled_path);
+        
+        let mut cmd = Command::new(&bundled_path);
+        cmd.args(&args);
+        
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        
+        match cmd.output() {
+            Ok(output) => {
+                if output.status.success() {
+                    log::error!("[ffprobe] Bundled ffprobe succeeded, stdout len: {}", output.stdout.len());
+                    return Ok(output.stdout);
+                } else {
+                    log::error!("[ffprobe] Bundled ffprobe failed: {}", String::from_utf8_lossy(&output.stderr));
+                    // Proceed to fallback
+                }
+            },
+            Err(e) => {
+                 log::error!("[ffprobe] Failed to execute bundled binary: {}", e);
+                 // Proceed to fallback
+            }
+        }
+    } else {
+        log::error!("[ffprobe] Bundled binary '{}' not found in standard locations", binary_name);
+    }
+    
+    // Fallback to system ffprobe (dev mode or if bundled binary not found/failed)
+    log::error!("[ffprobe] Falling back to system ffprobe");
+    
+    let mut cmd = Command::new("ffprobe");
+    cmd.args(&args);
+    
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    
+    let output = cmd.output()
         .map_err(|e| format!("Failed to run ffprobe: {}", e))?;
     
     if output.status.success() {
+        log::error!("[ffprobe] System ffprobe succeeded, stdout len: {}", output.stdout.len());
         Ok(output.stdout)
     } else {
-        Err(String::from_utf8_lossy(&output.stderr).to_string())
+        let err = String::from_utf8_lossy(&output.stderr).to_string();
+        log::error!("[ffprobe] System ffprobe failed: {}", err);
+        Err(err)
     }
 }
 
 /// Run ffmpeg sidecar with given arguments, returns success status
+/// Uses synchronous execution to avoid tokio runtime deadlocks
 pub fn run_ffmpeg_sidecar(app: &tauri::AppHandle, args: Vec<&str>) -> Result<bool, String> {
-    // Try sidecar first (bundled binary)
-    if let Ok(sidecar) = app.shell().sidecar("binaries/ffmpeg") {
-        let result = tauri::async_runtime::block_on(async {
-            sidecar
-                .args(&args)
-                .output()
-                .await
-        });
-        
-        if let Ok(output) = result {
-            return Ok(output.status.success());
-        }
+    // Determine the bundled ffmpeg path based on platform
+    #[cfg(target_os = "macos")]
+    let binary_name = "ffmpeg";
+    #[cfg(target_os = "windows")]
+    let binary_name = "ffmpeg.exe";
+    #[cfg(target_os = "linux")]
+    let binary_name = "ffmpeg";
+    
+    // Try to find the bundled binary
+    if let Some(bundled_path) = resolve_sidecar_path(app, binary_name) {
+         let mut cmd = Command::new(&bundled_path);
+         cmd.args(&args);
+         
+         #[cfg(target_os = "windows")]
+         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+         
+         match cmd.output() {
+             Ok(output) => {
+                 return Ok(output.status.success());
+             },
+             Err(_) => {
+                 // proceed to fallback
+             }
+         }
     }
     
-    // Fallback to system ffmpeg (dev mode or if sidecar fails)
-    let output = Command::new("ffmpeg")
-        .args(&args)
-        .output()
+    // Fallback to system ffmpeg (dev mode or if bundled binary not found)
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args(&args);
+    
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    
+    let output = cmd.output()
         .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
     
     Ok(output.status.success())
@@ -213,7 +291,7 @@ pub fn extract_metadata_from_file(path: &Path, app: &tauri::AppHandle) -> Extrac
                 .or_else(|| tags["TSRC"].as_str())
                 .map(|s| s.to_string());
             
-            println!("[GUI] Extracted metadata: artist={:?}, title={:?}, duration={:?}, isrc={:?}", 
+            log::info!("[GUI] Extracted metadata: artist={:?}, title={:?}, duration={:?}, isrc={:?}", 
                 metadata.artist, metadata.title, metadata.duration, metadata.isrc);
         }
     }
@@ -223,6 +301,7 @@ pub fn extract_metadata_from_file(path: &Path, app: &tauri::AppHandle) -> Extrac
 
 /// Probe duration of an audio file using ffprobe (sidecar)
 pub fn probe_duration(path: &Path, app: &tauri::AppHandle) -> Option<f64> {
+    log::error!("[probe_duration] Probing: {:?}", path);
     let path_str = path.to_string_lossy();
     let args = vec![
         "-v", "error",
@@ -231,10 +310,20 @@ pub fn probe_duration(path: &Path, app: &tauri::AppHandle) -> Option<f64> {
         &path_str,
     ];
     
-    let stdout = run_ffprobe_sidecar(app, args).ok()?;
-    let text = String::from_utf8_lossy(&stdout);
-    let line = text.lines().next()?.trim();
-    f64::from_str(line).ok()
+    match run_ffprobe_sidecar(app, args) {
+        Ok(stdout) => {
+            let text = String::from_utf8_lossy(&stdout);
+            log::error!("[probe_duration] Raw output: '{}'", text.trim());
+            let line = text.lines().next()?.trim();
+            let duration = f64::from_str(line).ok();
+            log::error!("[probe_duration] Parsed duration: {:?}", duration);
+            duration
+        }
+        Err(e) => {
+            log::error!("[probe_duration] ffprobe failed: {}", e);
+            None
+        }
+    }
 }
 
 // New helper function to invoke whatsmybitrate sidecar
@@ -321,13 +410,17 @@ pub async fn invoke_whatsmybitrate(
     
     // Explicitly add FFPROBE_PATH to envs if we can find the resource
     let mut envs = get_env_with_resources(app);
-    #[cfg(windows)]
+    #[cfg(target_os = "windows")]
     let ffprobe_name = "ffprobe.exe";
-    #[cfg(not(windows))]
+    #[cfg(not(target_os = "windows"))]
     let ffprobe_name = "ffprobe";
 
-    if let Some(ffprobe_path) = get_resource_path(app, ffprobe_name) {
+    // Use the robust sidecar resolution to find ffprobe (handles Contents/MacOS/ on bundle)
+    if let Some(ffprobe_path) = resolve_sidecar_path(app, ffprobe_name) {
         envs.insert("FFPROBE_PATH".to_string(), ffprobe_path.to_string_lossy().to_string());
+        log::info!("[whatsmybitrate] Injected FFPROBE_PATH: {:?}", ffprobe_path);
+    } else {
+        log::info!("[whatsmybitrate] WARNING: Could not resolve ffprobe path for injection");
     }
 
     // Run bundled executable
@@ -335,11 +428,9 @@ pub async fn invoke_whatsmybitrate(
          let mut cmd = Command::new(&exe_clone);
          cmd.envs(&envs);
 
-         #[cfg(windows)]
+         #[cfg(target_os = "windows")]
          {
-             use std::os::windows::process::CommandExt;
-             const CREATE_NO_WINDOW: u32 = 0x08000000;
-             cmd.creation_flags(CREATE_NO_WINDOW);
+             let _ = cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
          }
 
          for arg in args {
@@ -411,7 +502,7 @@ pub fn analyze_with_wmb_single(
                         return Ok((entry.bitrate, entry.is_lossless, entry.note.clone(), status));
                     } else {
                         // Entry exists but is incomplete (failed analysis) - ignore it and re-scan
-                        // println!("[scan] Ignoring incomplete cache entry for {:?}", path);
+                        // log::info!("[scan] Ignoring incomplete cache entry for {:?}", path);
                     }
                 }
             }
@@ -440,14 +531,14 @@ pub fn analyze_with_wmb_single(
 
     let status = match (err.is_some(), est, lossless) {
         (true, _, _) => {
-            eprintln!("[scan] Analysis returned error for {:?}: {:?}", path, err);
+            log::error!("[scan] Analysis returned error for {:?}: {:?}", path, err);
             "error".to_string()
         }
         (false, Some(b), _) if b < min => "bad".to_string(),
         (false, Some(_), _) => "ok".to_string(),
         (false, None, Some(true)) => "ok".to_string(), // FLAC/lossless = ok
         _ => {
-            eprintln!("[scan] No bitrate returned for {:?}, parsed: {:?}", path, parsed);
+            log::error!("[scan] No bitrate returned for {:?}, parsed: {:?}", path, parsed);
             "error".to_string()
         }
     };
