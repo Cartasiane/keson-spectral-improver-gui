@@ -15,7 +15,7 @@ jobs:
         include:
           - platform: macos-latest
             args: --target aarch64-apple-darwin
-          - platform: macos-15-intel
+          - platform: macos-14-intel
             args: --target x86_64-apple-darwin
           - platform: ubuntu-22.04
             args: ""
@@ -31,7 +31,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-15-intel' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.platform == 'macos-14-intel' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -72,12 +72,6 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: Install LLVM (macOS)
-        if: matrix.platform == 'macos-latest' || matrix.platform == 'macos-15-intel'
-        run: |
-          brew install llvm@15
-          echo "LLVM_CONFIG=$(brew --prefix llvm@15)/bin/llvm-config" >> $GITHUB_ENV
-
       - name: Build whatsmybitrate sidecar
         run: |
           cd vendor/whatsmybitrate
@@ -90,7 +84,7 @@ jobs:
           mkdir -p ../../src-tauri/resources/whatsmybitrate
 
           # Apply ad-hoc signature to the main binary inside the bundle (macOS only)
-          if [[ "${{ matrix.platform }}" == "macos-latest" || "${{ matrix.platform }}" == "macos-15-intel" ]]; then
+          if [[ "${{ matrix.platform }}" == "macos-latest" || "${{ matrix.platform }}" == "macos-14-intel" ]]; then
              codesign --force --sign - --entitlements entitlements.plist --options runtime dist/whatsmybitrate/whatsmybitrate
           fi
 
