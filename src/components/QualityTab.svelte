@@ -394,7 +394,12 @@
       scanMessage = "Remplacé par la version SoundCloud.";
     } catch (err) {
       console.error(err);
-      scanMessage = err?.message || "Impossible de remplacer le fichier";
+      // Handle string errors (common from Tauri invoke)
+      const msg =
+        typeof err === "string"
+          ? err
+          : err?.message || "Impossible de remplacer le fichier";
+      scanMessage = msg;
     }
   }
 

@@ -48,7 +48,7 @@
       class={`pill replaced ${active === "replaced" ? "active" : ""}`}
       on:click={() => setFilter("replaced")}
     >
-      <BadgeCheck size={16} style="margin-right: 4px" />Already Replaced {replaced ||
+      <BadgeCheck size={16} style="margin-right: 4px" />Déjà spectralisé {replaced ||
         replacedCount}
     </button>
   {/if}
@@ -65,7 +65,7 @@
       class={`pill review ${active === "review" ? "active" : ""}`}
       on:click={() => setFilter("review")}
     >
-      <HelpCircle size={16} /> À vérifier {reviewCount}
+      <HelpCircle size={16} style="margin-right: 4px" /> À vérifier {reviewCount}
     </button>
   {/if}
   {#if noMatchCount > 0}
@@ -73,7 +73,7 @@
       class={`pill nomatch ${active === "no-match" ? "active" : ""}`}
       on:click={() => setFilter("no-match")}
     >
-      <AlertCircle size={16} /> Non trouvés {noMatchCount}
+      <AlertCircle size={16} style="margin-right: 4px" /> Non trouvés {noMatchCount}
     </button>
   {/if}
   <button

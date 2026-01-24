@@ -47,7 +47,7 @@ export async function downloadWithUrl(originalPath, url, backup = true) {
 
 export async function acceptRedownload(original, fresh) {
   if (!isDesktop) throw new Error('Disponible seulement en desktop')
-  return invoke('accept_redownload', { original, new_path: fresh })
+  return invoke('accept_redownload', { original, newPath: fresh })
 }
 
 export async function discardFile(path) {
