@@ -122,7 +122,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Keson Spectral Improver ${{ github.ref_name }}"
-          releaseBody: "See the assets to download and install this version."
+          releaseBody: "Voir les assets pour télécharger et installer cette version."
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }} --features with-updater

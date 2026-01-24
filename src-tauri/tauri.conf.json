@@ -23,7 +23,7 @@
       "icons/icon_128.png",
       "icons/icon_256.png"
     ],
-    "createUpdaterArtifacts": false
+    "createUpdaterArtifacts": true
   },
   "build": {
     "beforeBuildCommand": "npm run build",
