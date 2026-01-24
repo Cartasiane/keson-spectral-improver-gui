@@ -15,7 +15,7 @@ jobs:
         include:
           - platform: macos-latest
             args: --target aarch64-apple-darwin
-          - platform: macos-14-intel
+          - platform: macos-14-large
             args: --target x86_64-apple-darwin
           - platform: ubuntu-22.04
             args: ""
@@ -31,7 +31,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-14-intel' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.platform == 'macos-14-large' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -84,7 +84,7 @@ jobs:
           mkdir -p ../../src-tauri/resources/whatsmybitrate
 
           # Apply ad-hoc signature to the main binary inside the bundle (macOS only)
-          if [[ "${{ matrix.platform }}" == "macos-latest" || "${{ matrix.platform }}" == "macos-14-intel" ]]; then
+          if [[ "${{ matrix.platform }}" == "macos-latest" || "${{ matrix.platform }}" == "macos-14-large" ]]; then
              codesign --force --sign - --entitlements entitlements.plist --options runtime dist/whatsmybitrate/whatsmybitrate
           fi
 
