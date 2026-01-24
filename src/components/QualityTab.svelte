@@ -5,7 +5,6 @@
   import RedownloadModal from "./RedownloadModal.svelte";
   import DownloadedComparison from "./DownloadedComparison.svelte";
   import { onDestroy } from "svelte";
-  import { convertFileSrc } from "@tauri-apps/api/core";
   import {
     isDesktop,
     pickFolderDialog,
@@ -17,6 +16,7 @@
     downloadWithUrl,
     acceptRedownload,
     discardFile,
+    toAssetUrl,
   } from "../services/scanService";
 
   let scanFolder = "";
@@ -367,8 +367,8 @@
         const rel = orig > 0 ? diff / orig : 1;
         const mismatch = diff > toleranceSec && rel > tolerancePct;
 
-        const origUrl = convertFileSrc(item.original_path);
-        const newUrl = convertFileSrc(item.new_path);
+        const origUrl = toAssetUrl(item.original_path);
+        const newUrl = toAssetUrl(item.new_path);
         console.log(
           "[QualityTab] orig path:",
           item.original_path,
@@ -498,18 +498,16 @@
   />
 
   {#if scanResults.length || downloadedItems.length > 0}
-    <ScanSummary
-      results={scanResults}
-      active={filter}
-      downloadedCount={downloadedItems.length}
-      reviewCount={reviewQueue.length}
-      {noMatchCount}
-      on:filter={(e) => (filter = e.detail)}
-    />
-    <div
-      class="actions"
-      style="justify-content:flex-start; margin-bottom: 10px; gap:8px;"
-    >
+    <div class="summary-row">
+      <ScanSummary
+        results={scanResults}
+        active={filter}
+        downloadedCount={downloadedItems.length}
+        reviewCount={reviewQueue.length}
+        {noMatchCount}
+        on:filter={(e) => (filter = e.detail)}
+        style="margin-bottom: 0px;"
+      />
       <button
         class="btn primary"
         disabled={retrying}
@@ -662,5 +660,14 @@
 
   .duration-info {
     font-size: 13px;
+  }
+
+  .summary-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 16px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
   }
 </style>

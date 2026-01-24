@@ -1,6 +1,6 @@
 <script>
   import { onMount, onDestroy } from "svelte";
-  import { convertFileSrc } from "@tauri-apps/api/core";
+  import { toAssetUrl } from "../services/scanService";
 
   export let pathA = ""; // Original/backup file
   export let pathB = ""; // New downloaded file
@@ -192,7 +192,7 @@
   <!-- Hidden audio elements -->
   <audio
     bind:this={audioA}
-    src={pathA ? convertFileSrc(pathA) : ""}
+    src={pathA ? toAssetUrl(pathA) : ""}
     on:timeupdate={handleTimeUpdate}
     on:loadedmetadata={handleLoadedMetadata}
     on:ended={handleEnded}
@@ -200,7 +200,7 @@
   ></audio>
   <audio
     bind:this={audioB}
-    src={pathB ? convertFileSrc(pathB) : ""}
+    src={pathB ? toAssetUrl(pathB) : ""}
     on:timeupdate={handleTimeUpdate}
     on:loadedmetadata={handleLoadedMetadata}
     on:ended={handleEnded}

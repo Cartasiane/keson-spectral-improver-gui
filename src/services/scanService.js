@@ -74,15 +74,29 @@ export async function extractCover(audioPath) {
 }
 
 /**
- * Convert cover path to displayable URL (handles local file paths)
- * @param {string|null} coverUrl - URL or local file path
- * @returns {string|null} - Displayable URL
+ * Convert a local file path to a Tauri asset URL for use in src attributes.
+ * Handles both Unix paths (/) and Windows paths (C:\).
+ * Returns URLs (http/https/asset) unchanged.
+ * 
+ * @param {string|null} filePath - Local file path or existing URL
+ * @returns {string|null} - Asset URL for use in HTML src attributes
  */
-export function getCoverSrc(coverUrl) {
-  if (!coverUrl) return null
-  // If it's a local file path, convert it for Tauri
-  if (coverUrl.startsWith('/') && isDesktop) {
-    return convertFileSrc(coverUrl)
+export function toAssetUrl(filePath) {
+  if (!filePath) return null
+  // If it's already a URL, return as-is
+  if (filePath.startsWith('http://') || filePath.startsWith('https://') || filePath.startsWith('asset://')) {
+    return filePath
   }
-  return coverUrl
+  // If it's a local file path (Unix: starts with /, Windows: has drive letter like C:\ or C:/)
+  const isWindowsPath = /^[A-Za-z]:[/\\]/.test(filePath)
+  const isUnixPath = filePath.startsWith('/')
+  const isLocalPath = isUnixPath || isWindowsPath
+
+  if (isLocalPath && isDesktop) {
+    return convertFileSrc(filePath)
+  }
+  return filePath
 }
+
+// Alias for backwards compatibility
+export const getCoverSrc = toAssetUrl

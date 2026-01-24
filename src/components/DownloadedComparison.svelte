@@ -1,9 +1,9 @@
 <script>
-  import { convertFileSrc } from "@tauri-apps/api/core";
   import {
     revertReplacement,
     extractCover,
     getCoverSrc,
+    toAssetUrl,
   } from "../services/scanService";
   import { createEventDispatcher, onMount } from "svelte";
   import { Check, Trash2, RotateCcw, Music } from "lucide-svelte";
@@ -66,7 +66,7 @@
           try {
             const coverPath = await extractCover(backupPath);
             if (coverPath) {
-              backupCovers[backupPath] = convertFileSrc(coverPath);
+              backupCovers[backupPath] = toAssetUrl(coverPath);
             } else {
               backupCovers[backupPath] = null;
             }
@@ -168,13 +168,13 @@
                 <span class="player-label">Avant (Backup):</span>
                 <audio
                   controls
-                  src={convertFileSrc(getBackupPath(item.original_path))}
+                  src={toAssetUrl(getBackupPath(item.original_path))}
                 ></audio>
               </div>
             {/if}
             <div class="player-row">
               <span class="player-label">Après (Nouveau):</span>
-              <audio controls src={convertFileSrc(item.new_path)}></audio>
+              <audio controls src={toAssetUrl(item.new_path)}></audio>
             </div>
 
             <div class="actions-row">

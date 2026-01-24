@@ -1,5 +1,5 @@
 <script>
-  import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+  import { invoke } from "@tauri-apps/api/core";
   import { downloadDir } from "@tauri-apps/api/path";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
