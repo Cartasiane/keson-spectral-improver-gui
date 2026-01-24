@@ -1,65 +1,52 @@
-# Development Guide
+# GUI Development Guide
 
-## Prerequisites
+This document covers how to build, run, and modify the `keson-spectral-improver-gui`.
 
-- **Node.js**: v20 or later (Use `nvm` to manage versions)
-- **Rust**: Stable toolchain (via `rustup`)
-- **Python**: v3.11+ (Required for script utilities)
+## 🛠 Prerequisites
 
-## Setting up the Environment
+- **Node.js** (v18+)
+- **Rust** & Cargo (latest stable)
+- **pnpm** (recommended) or npm
 
-### Windows Development
+## 🚀 Quick Start
 
-Because the required FFmpeg binaries are **>100MB**, they are **not committed** to the git repository (except for macOS). You must download them manually using the provided script.
+1. **Install Dependencies**
 
-1. **Install Python Dependencies**:
-   The script uses `py7zr` to handle archives.
-
-   ```powershell
-   pip install py7zr
+   ```bash
+   npm install
    ```
 
-2. **Download Binaries**:
-   Run the utility script to fetch FFmpeg/FFprobe for Windows (and other platforms).
+2. **Run in Development Mode**
+   Start the Vite frontend server:
 
-   ```powershell
-   python download_binaries.py
+   ```bash
+   npm run dev
    ```
 
-   > **Note**: This will create `src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe` and `ffprobe`.
+   In a separate terminal, launch the Tauri desktop app:
 
-3. **Run the App**:
-   Now you can start the Tauri development server.
-   ```powershell
+   ```bash
    npm run tauri dev
    ```
 
-### macOS Development
+## 🔌 Bridging to Core
 
-macOS binaries are smaller (<100MB) and are **committed to the repository**. You typically don't need to run the download script unless you want to update them or fetch Intel/ARM variants manually.
+The GUI interacts with `keson-spectral-improver-core` for heavy lifting.
 
-Simply run:
+- **Rust Backend**: `src-tauri/src/main.rs` exposes commands like `download_link` and `queue_stats`.
+- **Frontend**: The Svelte UI (`src/App.svelte`) calls these commands using `@tauri-apps/api`.
+- **Sidecars**: Binaries like `ffmpeg` and `ffprobe` are bundled as sidecars to ensure functionality on user machines.
 
-```bash
-npm run tauri dev
-```
+## 📦 Building for Release
 
-### Linux Development
-
-Linux binaries are also large and ignored by git. Use the same script as Windows:
+To create a production build/installer:
 
 ```bash
-pip install py7zr
-python3 download_binaries.py
-npm run tauri dev
+npm run tauri build
 ```
 
-## Verify Sidecars
+Artifacts will be in `src-tauri/target/release/bundle/`.
 
-To ensure sidecars are correctly detected:
+## 🎨 Styling
 
-1. Run the app in dev mode.
-2. Go to `Quality` tab.
-3. If errors occur regarding "command not found" or "permission denied", ensure:
-   - `src-tauri/binaries/` contains the binary with the correct target triple suffix.
-   - `src-tauri/capabilities/desktop.json` allows the binary execution.
+The app uses a customized version of [system.css](https://github.com/sakofchit/system.css) to achieve its "Retro/NeXT" aesthetic.

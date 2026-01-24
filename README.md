@@ -1,27 +1,37 @@
 # Keson Spectral Improver GUI
 
-Tauri + Svelte desktop app styled with system.css. It calls the shared core package (`keson-spectral-improver-core`) to download SoundCloud tracks and display quality info.
+The desktop interface for the **Keson Spectral Improver** suite.
+Designed for audiophiles and archivists, this tool ensures you get the highest quality audio from SoundCloud and other sources.
 
-## Dev quickstart
+## ✨ Features
 
-```bash
-cd packages/gui
-npm install
-npm run dev      # Vite dev server (for frontend only)
-# in another shell
-npm run tauri    # launches desktop app
-```
+- **Spectral Analysis**: Automatically analyzes downloaded tracks for true audio quality.
+- **Bitrate Verification**: Detects fake 320kbps transcodes.
+- **Queue Management**: Handle large playlists and downloads efficiently.
+- **Cross-Platform**: Native support for **macOS** (Intel & Apple Silicon) and **Windows**.
 
-> You need Rust + cargo installed for Tauri.
+## 📥 Download
 
-## Bridging to the core
-- `src-tauri/src/main.rs` exposes `download_link` and `queue_stats` commands. Wire these to the Node core by spawning a sidecar process or embedding a small Node runner.
-- The Svelte UI (`src/App.svelte`) calls these commands via `@tauri-apps/api/tauri`.
+Head over to the [Releases Page](../../releases) to grab the latest installer for your system:
 
-## Styling
-- Uses [`system.css`](https://github.com/sakofchit/system.css) for the NeXT-like window chrome.
+- **macOS**: Download `.dmg` (Universal or per-architecture).
+- **Windows**: Download `.exe` or `.msi`.
 
-## Next steps
-- Replace the placeholder implementations in `main.rs` with real calls to `downloadTrack` (via a Node sidecar or a Rust port).
-- Persist output directory choice and remember recent downloads.
-- Surface playlist chunk prompts and bitrate warnings in the UI.
+> **Note for macOS Users**: The app is currently unsigned. You may need to Right Click > Open and accept the warning on first launch.
+
+## 🚀 Usage
+
+1. **Launch the App**.
+2. **Paste a Link**: Support for SoundCloud tracks, playlists, and sets.
+3. **Queue & Download**: The core engine will handle the rest, upgrading files where possible.
+4. **Inspect**: Click on any processed track to view its spectral data and quality score.
+
+## 👨‍💻 For Developers
+
+Interested in building from source or contributing?
+Check out the [Developer Guide](./DEVELOPMENT.md).
+
+## 🎨 Credits
+
+- Built with **Tauri** & **Svelte**.
+- Retro styling inspired by **system.css**.
