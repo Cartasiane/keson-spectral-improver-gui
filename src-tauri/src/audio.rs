@@ -155,7 +155,7 @@ pub fn get_resource_path(app: &tauri::AppHandle, name: &str) -> Option<PathBuf> 
     let direct = res_dir.join(name);
     if direct.exists() {
         // For whatsmybitrate, we explicitly want the directory, not a stray binary file in target root
-        if name == "whatsmybitrate" {
+        if name.contains("whatsmybitrate") {
             if direct.is_dir() {
                 return Some(direct);
             }
@@ -171,7 +171,7 @@ pub fn get_resource_path(app: &tauri::AppHandle, name: &str) -> Option<PathBuf> 
     }
     
     // Check _up_/vendor (bundled ../vendor/whatsmybitrate often ends up here)
-    if name == "whatsmybitrate" {
+    if name.contains("whatsmybitrate") {
          let up_vendor = res_dir.join("_up_").join("vendor").join(name);
          if up_vendor.exists() {
              return Some(up_vendor);
@@ -354,12 +354,33 @@ pub async fn invoke_whatsmybitrate(
     #[cfg(not(windows))]
     let bin_name = "whatsmybitrate";
 
-    // Try to find the bundled onedir executable in resources
+    // Detect architecture and OS for specific resource lookups
+    let arch = std::env::consts::ARCH; // "x86_64" or "aarch64"
+    #[cfg(target_os = "macos")]
+    let target_triple_suffix = "-apple-darwin";
+    #[cfg(target_os = "windows")]
+    let target_triple_suffix = "-pc-windows-msvc";
+    #[cfg(target_os = "linux")]
+    let target_triple_suffix = "-unknown-linux-gnu";
+
+    let resource_names = vec![
+        // 1. Specific arch (e.g. whatsmybitrate-aarch64-apple-darwin)
+        format!("whatsmybitrate-{}{}", arch, target_triple_suffix),
+        // 2. Generic fallback
+        "whatsmybitrate".to_string(),
+    ];
+
     let mut exe_path = None;
-    if let Some(dir) = get_resource_path(app, "whatsmybitrate") {
-        let candidate = dir.join(bin_name);
-        if candidate.exists() {
-            exe_path = Some(candidate);
+    
+    // Try to find the bundled onedir executable in resources
+    for name in resource_names {
+        if let Some(dir) = get_resource_path(app, &name) {
+            let candidate = dir.join(bin_name);
+            log::info!("[whatsmybitrate] Checking for binary at: {:?}", candidate);
+            if candidate.exists() {
+                exe_path = Some(candidate);
+                break;
+            }
         }
     }
 

@@ -79,16 +79,28 @@ jobs:
           pip install -r requirements.txt
           pyinstaller whatsmybitrate.spec
 
+          # Determine target directory suffix based on platform
+          TARGET_DIR="whatsmybitrate"
+          if [[ "${{ matrix.platform }}" == "macos-14" ]]; then
+            TARGET_DIR="whatsmybitrate-aarch64-apple-darwin"
+          elif [[ "${{ matrix.platform }}" == "macos-latest" ]]; then
+            TARGET_DIR="whatsmybitrate-x86_64-apple-darwin"
+          elif [[ "${{ matrix.platform }}" == "windows-latest" ]]; then
+             # Windows doesn't strictly need arch suffix due to no cross-play, usually
+             # but to be safe and match config:
+             TARGET_DIR="whatsmybitrate" 
+          fi
+
           # Prepare resources directory
-          mkdir -p ../../src-tauri/resources/whatsmybitrate
+          mkdir -p "../../src-tauri/resources/$TARGET_DIR"
 
           # Apply ad-hoc signature to the main binary inside the bundle (macOS only)
           if [[ "${{ matrix.platform }}" == "macos-14" || "${{ matrix.platform }}" == "macos-latest" ]]; then
              codesign --force --sign - --entitlements entitlements.plist --options runtime dist/whatsmybitrate/whatsmybitrate
           fi
 
-          # Copy the entire onedir content to resources
-          cp -r dist/whatsmybitrate/* ../../src-tauri/resources/whatsmybitrate/
+          # Copy the entire onedir content to specific resources dir
+          cp -r dist/whatsmybitrate/* "../../src-tauri/resources/$TARGET_DIR/"
         shell: bash
 
       - name: Setup Node.js
