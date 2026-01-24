@@ -72,6 +72,12 @@ jobs:
           python-version: "3.11"
           cache: pip
 
+      - name: Install LLVM (macOS)
+        if: matrix.platform == 'macos-latest' || matrix.platform == 'macos-15-intel'
+        run: |
+          brew install llvm@15
+          echo "LLVM_CONFIG=$(brew --prefix llvm@15)/bin/llvm-config" >> $GITHUB_ENV
+
       - name: Build whatsmybitrate sidecar
         run: |
           cd vendor/whatsmybitrate
