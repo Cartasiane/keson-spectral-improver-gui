@@ -76,7 +76,11 @@ jobs:
         if: matrix.platform == 'macos-latest' || matrix.platform == 'macos-15-intel'
         run: |
           brew install llvm@15
-          echo "LLVM_CONFIG=$(brew --prefix llvm@15)/bin/llvm-config" >> $GITHUB_ENV
+          LLVM_PATH=$(brew --prefix llvm@15)
+          echo "LLVM_DIR=$LLVM_PATH" >> $GITHUB_ENV
+          echo "CMAKE_PREFIX_PATH=$LLVM_PATH" >> $GITHUB_ENV
+          echo "LLVM_CONFIG=$LLVM_PATH/bin/llvm-config" >> $GITHUB_ENV
+          echo "$LLVM_PATH/bin" >> $GITHUB_PATH
 
       - name: Build whatsmybitrate sidecar
         run: |
