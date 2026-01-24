@@ -4,9 +4,7 @@
     "active": true,
     "targets": "all",
     "resources": [
-      "resources/whatsmybitrate",
-      "resources/whatsmybitrate-x86_64-apple-darwin",
-      "resources/whatsmybitrate-aarch64-apple-darwin"
+      "resources/whatsmybitrate"
     ],
     "externalBin": [
       "binaries/ffmpeg",
