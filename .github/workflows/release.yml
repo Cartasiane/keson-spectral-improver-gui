@@ -81,6 +81,7 @@ jobs:
       - name: Build whatsmybitrate sidecar
         run: |
           cd vendor/whatsmybitrate
+          export MACOSX_DEPLOYMENT_TARGET=10.13
           pip install pyinstaller
           pip install -r requirements.txt
           pyinstaller whatsmybitrate.spec
