@@ -1,6 +1,6 @@
 [package]
 name = "keson-spectral-improver-gui"
-version = "0.9.10"
+version = "0.9.11"
 edition = "2021"
 authors = ["keson"]
 
