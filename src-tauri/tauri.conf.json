@@ -3,13 +3,8 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "resources": [
-      "resources/whatsmybitrate"
-    ],
-    "externalBin": [
-      "binaries/ffmpeg",
-      "binaries/ffprobe"
-    ],
+    "resources": ["resources/whatsmybitrate"],
+    "externalBin": ["binaries/ffmpeg", "binaries/ffprobe"],
     "macOS": {
       "minimumSystemVersion": "10.13",
       "signingIdentity": "-",
@@ -33,7 +28,7 @@
   },
   "productName": "Keson Spectral Improver",
   "mainBinaryName": "Keson Spectral Improver",
-  "version": "0.9.11",
+  "version": "0.9.12",
   "identifier": "com.keson.spectralimprover",
   "plugins": {
     "updater": {
@@ -47,12 +42,7 @@
     "security": {
       "assetProtocol": {
         "enable": true,
-        "scope": [
-          "$APP/**",
-          "$RESOURCE/**",
-          "$TEMP/**",
-          "$HOME/**"
-        ]
+        "scope": ["$APP/**", "$RESOURCE/**", "$TEMP/**", "$HOME/**"]
       }
     },
     "windows": [
