@@ -4,6 +4,7 @@
   import ScanRow from "./ScanRow.svelte";
   import RedownloadModal from "./RedownloadModal.svelte";
   import DownloadedComparison from "./DownloadedComparison.svelte";
+  import KesonDrawable from "./KesonDrawable.svelte";
   import { onDestroy } from "svelte";
   import {
     isDesktop,
@@ -511,7 +512,6 @@
         reviewCount={reviewQueue.length}
         {noMatchCount}
         on:filter={(e) => (filter = e.detail)}
-        style="margin-bottom: 0px;"
       />
       <button
         class="btn primary"
@@ -535,8 +535,14 @@
         />
       {:else if retrying}
         <div class="downloading-placeholder">
-          <div class="spinner"></div>
-          <p>Téléchargement en cours...</p>
+          <div style="width: 160px; height: 260px;">
+            <KesonDrawable
+              autoplay={true}
+              loop={true}
+              duration={3000}
+              strokeColor="#39ff14"
+            />
+          </div>
         </div>
       {:else}
         <div class="downloading-placeholder">
@@ -632,30 +638,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 16px;
-    padding: 48px 24px;
-    background: linear-gradient(
-      145deg,
-      rgba(30, 30, 50, 0.6),
-      rgba(20, 20, 35, 0.7)
-    );
-    border-radius: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-  }
-
-  .downloading-placeholder .spinner {
-    width: 40px;
-    height: 40px;
-    border: 3px solid rgba(255, 255, 255, 0.1);
-    border-top-color: var(--primary, #646cff);
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-  }
-
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
+    margin: 25px 0;
   }
 
   .review-row {

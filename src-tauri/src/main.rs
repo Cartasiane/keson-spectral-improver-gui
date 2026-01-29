@@ -19,10 +19,10 @@ use std::sync::{Arc, Mutex};
 use tauri::{async_runtime, Emitter, Manager};
 use walkdir::WalkDir;
 
-use audio::{analyze_with_wmb_single, analyze_file_quality, extract_metadata_from_file, is_audio, probe_bitrate, probe_duration, run_ffmpeg_sidecar};
+use audio::{analyze_with_wmb_single, analyze_file_quality, extract_metadata_from_file, is_audio, probe_bitrate, probe_duration};
 use cache::{cache_path, load_cache, save_cache};
 pub use settings::{get_settings, load_settings, save_settings};
-use types::{DownloadResult, QueueStats, RedownloadResult, ScanResult};
+use types::{DownloadResult, QueueStats, RedownloadResult, ScanResult, SearchResult};
 
 /// Core API URL - always uses production server
 const CORE_API_URL: &str = "https://keson.api.acab.love";
@@ -264,41 +264,109 @@ fn download_via_api(
     })
 }
 
-/// Extract embedded cover from audio file using ffmpeg sidecar (helper function, not a command)
-fn extract_embedded_cover(audio_path: &str, app: &tauri::AppHandle) -> Result<Option<String>, String> {
+/// Extract embedded cover from audio file using Lofty (native Rust, no ffmpeg)
+fn extract_embedded_cover(audio_path: &str, _app: &tauri::AppHandle) -> Result<Option<String>, String> {
+    use lofty::prelude::*;
+    use lofty::probe::Probe;
+    use std::fs::File;
+    use std::io::Write;
+
     let path = PathBuf::from(audio_path);
     if !path.exists() {
         return Err(format!("File not found: {}", audio_path));
     }
 
+    // Check if we already have a cached version
     let temp_dir = std::env::temp_dir();
     let hash = format!("{:x}", md5::compute(audio_path));
-    let output_path = temp_dir.join(format!("keson-cover-{}.jpg", hash));
-
-    if output_path.exists() {
-        return Ok(Some(output_path.to_string_lossy().to_string()));
-    }
-
-    let output_path_str = output_path.to_string_lossy().to_string();
-    let args = vec![
-        "-y",
-        "-i", audio_path,
-        "-an",
-        "-vcodec", "copy",
-        &output_path_str,
-    ];
     
-    let success = run_ffmpeg_sidecar(app, args)?;
+    // We don't know the extension yet, so we check specifically for our known formats
+    let jpg_path = temp_dir.join(format!("keson-cover-{}.jpg", hash));
+    let png_path = temp_dir.join(format!("keson-cover-{}.png", hash));
 
-    if !success {
-        return Ok(None);
+    if jpg_path.exists() {
+        return Ok(Some(jpg_path.to_string_lossy().to_string()));
+    }
+    if png_path.exists() {
+        return Ok(Some(png_path.to_string_lossy().to_string()));
     }
 
-    if output_path.exists() {
-        Ok(Some(output_path.to_string_lossy().to_string()))
-    } else {
-        Ok(None)
+    // Read the file with Lofty
+    log::info!("[cover] Probing file: {}", audio_path);
+    let tagged_file = match Probe::open(&path) {
+        Ok(probe) => match probe.read() {
+            Ok(tf) => tf,
+            Err(e) => {
+                log::error!("[cover] Failed to read file: {}", e);
+                return Err(format!("Failed to read file: {}", e));
+            }
+        },
+        Err(e) => {
+            log::error!("[cover] Failed to open file: {}", e);
+            return Err(format!("Failed to open file: {}", e));
+        }
+    };
+
+    // Find the first picture
+    let tag = match tagged_file.primary_tag() {
+        Some(t) => t,
+        None => {
+            log::warn!("[cover] No primary tag found, trying first_tag");
+            match tagged_file.first_tag() {
+                Some(t) => t,
+                None => {
+                    log::warn!("[cover] No tags found at all");
+                    return Ok(None);
+                }
+            }
+        },
+    };
+
+    let pictures = tag.pictures();
+    log::info!("[cover] Found {} pictures", pictures.len());
+
+    let picture = match pictures.first() {
+        Some(p) => p,
+        None => {
+            log::warn!("[cover] No pictures in tag");
+            return Ok(None);
+        }
+    };
+
+    // Determine extension based on mime type
+    log::info!("[cover] Mime type: {:?}", picture.mime_type());
+    let extension = match picture.mime_type() {
+        Some(lofty::picture::MimeType::Png) => "png",
+        Some(lofty::picture::MimeType::Jpeg) => "jpg",
+        Some(lofty::picture::MimeType::Tiff) => "tiff",
+        Some(lofty::picture::MimeType::Bmp) => "bmp",
+        Some(lofty::picture::MimeType::Gif) => "gif",
+        _ => {
+            log::warn!("[cover] Unknown or unhandled mime type, defaulting to jpg");
+            "jpg"
+        }, 
+    };
+
+    let output_path = temp_dir.join(format!("keson-cover-{}.{}", hash, extension));
+    log::info!("[cover] Writing to: {:?}", output_path);
+    
+    // Write data to temp file
+    let mut file = match File::create(&output_path) {
+        Ok(f) => f,
+        Err(e) => {
+            log::error!("[cover] Failed to create temp file: {}", e);
+            return Err(format!("Failed to create temp file: {}", e));
+        }
+    };
+
+    if let Err(e) = file.write_all(picture.data()) {
+        log::error!("[cover] Failed to write data: {}", e);
+        return Err(format!("Failed to write cover data: {}", e));
     }
+
+    let result = output_path.to_string_lossy().to_string();
+    log::info!("[cover] Success: {}", result);
+    Ok(Some(result))
 }
 
 #[tauri::command]
@@ -712,13 +780,88 @@ async fn check_auth_status(app: tauri::AppHandle) -> Result<AuthStatus, String> 
     Ok(result)
 }
 
+/// Search for tracks on Tidal and SoundCloud
+#[tauri::command]
+async fn search_tracks(query: String, app: tauri::AppHandle) -> Result<Vec<SearchResult>, String> {
+    let settings = load_settings(&app);
+    let client_token = settings.client_token.clone()
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| "Non enregistré. Veuillez entrer votre code d'invitation.".to_string())?;
+    
+    if query.trim().len() < 2 {
+        return Err("La recherche doit contenir au moins 2 caractères".to_string());
+    }
+    
+    tauri::async_runtime::spawn_blocking(move || {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .map_err(|e| format!("Client build failed: {e}"))?;
+        
+        log::info!("[GUI] Search query: '{}'", query);
+        
+        let payload = serde_json::json!({
+            "query": query
+        });
+        
+        let resp = client.post(format!("{}/search/multi", CORE_API_URL))
+            .header("X-Client-Token", &client_token)
+            .json(&payload)
+            .send()
+            .map_err(|e| format!("Search request failed: {e}"))?;
+        
+        if !resp.status().is_success() {
+            let err_text = resp.text().unwrap_or_default();
+            log::error!("[GUI] Search failed: {}", err_text);
+            return Err(format!("Search failed: {}", err_text));
+        }
+        
+        let json: serde_json::Value = resp.json()
+            .map_err(|e| format!("JSON parse failed: {e}"))?;
+        
+        let results: Vec<SearchResult> = json["results"]
+            .as_array()
+            .map(|arr| {
+                arr.iter().filter_map(|v| {
+                    Some(SearchResult {
+                        source: v["source"].as_str()?.to_string(),
+                        url: v["url"].as_str()?.to_string(),
+                        title: v["title"].as_str().unwrap_or("Unknown").to_string(),
+                        artist: v["artist"].as_str().unwrap_or("Unknown").to_string(),
+                        duration: v["duration"].as_f64(),
+                        cover_url: v["cover_url"].as_str().map(|s| s.to_string()),
+                        score: v["score"].as_f64().unwrap_or(0.0),
+                    })
+                }).collect()
+            })
+            .unwrap_or_default();
+        
+        log::info!("[GUI] Search returned {} results", results.len());
+        Ok(results)
+    }).await.map_err(|e| e.to_string())?
+}
+
 fn main() {
     init_rayon_pool();
     tauri::Builder::default()
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_http::init())
-        .plugin(tauri_plugin_log::Builder::default().build())
+        .plugin(tauri_plugin_log::Builder::default()
+            .targets([
+                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: None }),
+                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
+            ])
+            .level(log::LevelFilter::Info)
+            .filter(|metadata| {
+                // Silence reqwest and hyper trace/debug logs
+                if metadata.target().starts_with("reqwest") || metadata.target().starts_with("hyper") {
+                    return false;
+                }
+                true
+            })
+            .build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -760,7 +903,8 @@ fn main() {
             extract_cover,
             register_client,
             check_auth_status,
-            open_logs_folder
+            open_logs_folder,
+            search_tracks
         ])
 
         .run(tauri::generate_context!())

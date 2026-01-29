@@ -4,9 +4,10 @@
     extractCover,
     getCoverSrc,
     toAssetUrl,
+    openSpectrum,
   } from "../services/scanService";
   import { createEventDispatcher, onMount } from "svelte";
-  import { Check, Trash2, RotateCcw, Music } from "lucide-svelte";
+  import { Check, Trash2, RotateCcw, Music, Loader } from "lucide-svelte";
 
   export let items = [];
 
@@ -14,6 +15,31 @@
 
   // Store extracted cover paths: { [backupPath]: coverUrl | null }
   let backupCovers = {};
+  let newCovers = {}; // path -> assetUrl
+  let loadVersion = 0;
+
+  // Spectrum state: { [path]: url | 'error' }
+  let spectrumUrls = {};
+  // Spectrum loading state: { [path]: boolean }
+  let spectrumLoading = {};
+
+  async function generateSpectrum(path) {
+    if (!path || spectrumLoading[path]) return;
+    spectrumLoading[path] = true;
+    spectrumLoading = { ...spectrumLoading };
+
+    try {
+      const url = await openSpectrum(path);
+      spectrumUrls[path] = url;
+    } catch (e) {
+      console.error("Spectrum generation failed:", e);
+      spectrumUrls[path] = "error";
+    } finally {
+      spectrumLoading[path] = false;
+      spectrumLoading = { ...spectrumLoading };
+      spectrumUrls = { ...spectrumUrls };
+    }
+  }
 
   function formatDuration(seconds) {
     if (!seconds) return "--:--";
@@ -57,32 +83,82 @@
     dispatch("dismiss", item);
   }
 
-  // Extract covers for backup files
-  async function loadBackupCovers() {
+  const MAX_CONCURRENT = 3;
+
+  async function loadCovers() {
+    loadVersion++;
+    const currentVersion = loadVersion;
+
+    // Create a list of all paths we need to check (backups AND new files)
+    const toProcess = [];
+
+    // 1. Check backup covers
     for (const item of items) {
       if (item.backup_enabled) {
         const backupPath = getBackupPath(item.original_path);
-        if (backupPath && !(backupPath in backupCovers)) {
-          try {
-            const coverPath = await extractCover(backupPath);
-            if (coverPath) {
-              backupCovers[backupPath] = toAssetUrl(coverPath);
-            } else {
-              backupCovers[backupPath] = null;
-            }
-            backupCovers = { ...backupCovers }; // trigger reactivity
-          } catch (e) {
-            console.error("Cover extraction failed:", e);
-            backupCovers[backupPath] = null;
-            backupCovers = { ...backupCovers };
-          }
+        if (backupPath && !backupCovers[backupPath]) {
+          toProcess.push({ path: backupPath, type: "backup" });
         }
       }
+    }
+
+    // 2. Check new file covers (fallback if no URL)
+    for (const item of items) {
+      if (!item.cover_url && item.new_path && !newCovers[item.new_path]) {
+        toProcess.push({ path: item.new_path, type: "new" });
+      }
+    }
+
+    if (toProcess.length === 0) return;
+
+    // Process in chunks
+    for (let i = 0; i < toProcess.length; i += MAX_CONCURRENT) {
+      if (loadVersion !== currentVersion) return;
+
+      const chunk = toProcess.slice(i, i + MAX_CONCURRENT);
+      await Promise.all(
+        chunk.map(async (task) => {
+          if (loadVersion !== currentVersion) return;
+
+          try {
+            console.log(
+              `[CoverLogic] Starting extraction for ${task.type}: ${task.path}`,
+            );
+            const coverPath = await extractCover(task.path);
+            console.log(
+              `[CoverLogic] Extracted ${task.type} path: ${coverPath}`,
+            );
+
+            if (loadVersion === currentVersion) {
+              const finalUrl = coverPath ? toAssetUrl(coverPath) : null;
+
+              if (task.type === "backup") {
+                backupCovers[task.path] = finalUrl;
+                backupCovers = { ...backupCovers };
+              } else {
+                newCovers[task.path] = finalUrl;
+                newCovers = { ...newCovers };
+              }
+            }
+          } catch (e) {
+            console.error(`[CoverLogic] ${task.type} extraction failed:`, e);
+            if (loadVersion === currentVersion) {
+              if (task.type === "backup") {
+                backupCovers[task.path] = null;
+                backupCovers = { ...backupCovers };
+              } else {
+                newCovers[task.path] = null;
+                newCovers = { ...newCovers };
+              }
+            }
+          }
+        }),
+      );
     }
   }
 
   // Load covers on mount and when items change
-  $: if (items.length > 0) loadBackupCovers();
+  $: if (items.length > 0) loadCovers();
 </script>
 
 {#if items.length > 0}
@@ -141,9 +217,10 @@
 
               <!-- Cover Art -->
               <div class="cover-container">
-                {#if getCoverSrc(item.cover_url)}
+                {#if getCoverSrc(item.cover_url) || newCovers[item.new_path]}
                   <img
-                    src={getCoverSrc(item.cover_url)}
+                    src={getCoverSrc(item.cover_url) ||
+                      newCovers[item.new_path]}
                     class="cover-img"
                     alt="New Cover"
                   />
@@ -179,6 +256,31 @@
 
             <div class="actions-row">
               {#if item.backup_enabled}
+                {@const backupPath = getBackupPath(item.original_path)}
+                <button
+                  class="action-btn"
+                  on:click={() => generateSpectrum(backupPath)}
+                  disabled={spectrumLoading[backupPath]}
+                >
+                  {#if spectrumLoading[backupPath]}
+                    <Loader size={14} class="spin" />
+                  {:else}
+                    Spectre Avant
+                  {/if}
+                </button>
+              {/if}
+              <button
+                class="action-btn"
+                on:click={() => generateSpectrum(item.new_path)}
+                disabled={spectrumLoading[item.new_path]}
+              >
+                {#if spectrumLoading[item.new_path]}
+                  <Loader size={14} class="spin" />
+                {:else}
+                  Spectre Après
+                {/if}
+              </button>
+              {#if item.backup_enabled}
                 <button
                   class="action-btn revert"
                   on:click={() => handleRevert(item)}
@@ -187,6 +289,66 @@
                 </button>
               {/if}
             </div>
+
+            <!-- Spectrum Display -->
+            {#if item.backup_enabled}
+              {@const backupPath = getBackupPath(item.original_path)}
+              {#if spectrumUrls[backupPath] || spectrumUrls[item.new_path] || spectrumLoading[backupPath] || spectrumLoading[item.new_path]}
+                <div class="spectrum-comparison">
+                  <div class="spectrum-box">
+                    <span class="spectrum-label">Spectre Avant</span>
+                    {#if spectrumLoading[backupPath]}
+                      <div class="skeleton"></div>
+                    {:else if spectrumUrls[backupPath] === "error"}
+                      <div class="skeleton error">Spectre indisponible</div>
+                    {:else if spectrumUrls[backupPath]}
+                      <img
+                        src={spectrumUrls[backupPath]}
+                        alt="Spectrum Before"
+                        loading="lazy"
+                      />
+                    {:else}
+                      <div class="skeleton empty">
+                        Cliquez sur "Spectre Avant"
+                      </div>
+                    {/if}
+                  </div>
+                  <div class="spectrum-box">
+                    <span class="spectrum-label">Spectre Après</span>
+                    {#if spectrumLoading[item.new_path]}
+                      <div class="skeleton"></div>
+                    {:else if spectrumUrls[item.new_path] === "error"}
+                      <div class="skeleton error">Spectre indisponible</div>
+                    {:else if spectrumUrls[item.new_path]}
+                      <img
+                        src={spectrumUrls[item.new_path]}
+                        alt="Spectrum After"
+                        loading="lazy"
+                      />
+                    {:else}
+                      <div class="skeleton empty">
+                        Cliquez sur "Spectre Après"
+                      </div>
+                    {/if}
+                  </div>
+                </div>
+              {/if}
+            {:else if spectrumUrls[item.new_path] || spectrumLoading[item.new_path]}
+              <div class="spectrum-single">
+                <span class="spectrum-label">Spectre</span>
+                {#if spectrumLoading[item.new_path]}
+                  <div class="skeleton"></div>
+                {:else if spectrumUrls[item.new_path] === "error"}
+                  <div class="skeleton error">Spectre indisponible</div>
+                {:else if spectrumUrls[item.new_path]}
+                  <img
+                    src={spectrumUrls[item.new_path]}
+                    alt="Spectrum"
+                    loading="lazy"
+                  />
+                {/if}
+              </div>
+            {/if}
           </div>
         </div>
       {/each}
@@ -390,5 +552,98 @@
     object-fit: cover;
     border-radius: 6px;
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.25);
+  }
+
+  /* Spectrum styles */
+  .spectrum-comparison {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 16px;
+  }
+
+  .spectrum-single {
+    margin-top: 16px;
+  }
+
+  .spectrum-box {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .spectrum-label {
+    font-size: 0.75rem;
+    color: var(--text-muted, #888);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .spectrum-comparison img,
+  .spectrum-single img {
+    width: 100%;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .skeleton {
+    height: 120px;
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.05) 25%,
+      rgba(255, 255, 255, 0.1) 50%,
+      rgba(255, 255, 255, 0.05) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted, #888);
+    font-size: 0.8rem;
+  }
+
+  .skeleton.error {
+    background: rgba(248, 113, 113, 0.1);
+    animation: none;
+    color: #f87171;
+  }
+
+  .skeleton.empty {
+    background: rgba(255, 255, 255, 0.03);
+    animation: none;
+  }
+
+  @keyframes shimmer {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
+  }
+
+  /* Spin animation for loader */
+  :global(.spin) {
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .actions-row {
+    gap: 8px;
+  }
+
+  .action-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
 </style>
