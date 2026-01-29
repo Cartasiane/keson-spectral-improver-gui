@@ -32,10 +32,15 @@
   <div class="actions" style="gap: 8px;">
     <button
       class="btn ghost"
+      class:scanning
       disabled={scanning}
       on:click={() => dispatch("scan")}
     >
-      {scanning ? "Scan…" : "Lancer le scan"}
+      {#if scanning}
+        Analyse en cours...
+      {:else}
+        Lancer le scan
+      {/if}
     </button>
   </div>
 </div>
@@ -80,5 +85,10 @@
     background: var(--surface-3, #222);
     border-color: var(--accent, #39ff14);
     color: var(--accent, #39ff14);
+  }
+
+  .btn.ghost.scanning {
+    min-width: 140px;
+    padding: 8px 16px;
   }
 </style>

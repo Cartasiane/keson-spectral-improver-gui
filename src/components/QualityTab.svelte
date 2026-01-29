@@ -22,6 +22,7 @@
 
   let scanFolder = "";
   let scanning = false;
+  let scanCancelled = false;
   let scanResults = [];
   let scanMessage = "";
   let filter = "bad";
@@ -69,29 +70,48 @@
       return;
     }
     scanning = true;
+    scanCancelled = false;
     scanMessage = "Analyse en cours...";
     progress = 0;
     await startProgressListener();
     try {
       const results = await performScan(scanFolder, 256);
-      scanResults = results;
-      const bad = results.filter((r) => r.status === "bad").length;
-      scanMessage = bad
-        ? `${bad} fichier(s) sous 256 kbps`
-        : "Tout est au-dessus de 256 kbps";
+      if (scanCancelled) {
+        scanMessage = "Scan annulé.";
+        scanResults = [];
+      } else {
+        scanResults = results;
+        const bad = results.filter((r) => r.status === "bad").length;
+        scanMessage = bad
+          ? `${bad} fichier(s) sous 256 kbps`
+          : "Tout est au-dessus de 256 kbps";
+      }
     } catch (error) {
-      console.error(error);
-      const msg =
-        (error && (error.message || error.toString?.())) ||
-        (typeof error === "string" ? error : "") ||
-        "";
-      scanMessage = msg.trim() || "Échec de l’analyse";
+      if (scanCancelled) {
+        scanMessage = "Scan annulé.";
+      } else {
+        console.error(error);
+        const msg =
+          (error && (error.message || error.toString?.())) ||
+          (typeof error === "string" ? error : "") ||
+          "";
+        scanMessage = msg.trim() || "Échec de l'analyse";
+      }
     } finally {
       scanning = false;
       stopProgressListener();
       progress = 100;
       progressLabel = "";
     }
+  }
+
+  function stopScan() {
+    scanCancelled = true;
+    scanning = false;
+    scanMessage = "Scan annulé.";
+    progress = 0;
+    progressLabel = "";
+    stopProgressListener();
   }
 
   async function startProgressListener() {
@@ -501,6 +521,7 @@
     {progressLabel}
     on:pick={pickFolder}
     on:scan={runScan}
+    on:stop={stopScan}
   />
 
   {#if scanResults.length || downloadedItems.length > 0}
