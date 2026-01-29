@@ -1,6 +1,7 @@
 <script>
   import DownloadTab from "./components/DownloadTab.svelte";
   import QualityTab from "./components/QualityTab.svelte";
+  import SearchTab from "./components/SearchTab.svelte";
   import SettingsModal from "./components/SettingsModal.svelte";
   import RegistrationModal from "./components/RegistrationModal.svelte";
   import UpdateNotification from "./components/UpdateNotification.svelte";
@@ -13,6 +14,7 @@
   import { startMatrix } from "./services/matrixRain";
 
   let activeTab = "quality";
+  let searchDownloadUrl = null;
   let showSettings = false;
   let showTitleBar = false;
   let settings = {
@@ -206,13 +208,30 @@
     >
       Download
     </button>
+    <button
+      class:active={activeTab === "search"}
+      on:click={() => (activeTab = "search")}
+    >
+      Search
+    </button>
   </div>
 
   <div style="display: {activeTab === 'download' ? 'block' : 'none'}">
-    <DownloadTab />
+    <DownloadTab
+      prefillUrl={searchDownloadUrl}
+      on:urlConsumed={() => (searchDownloadUrl = null)}
+    />
   </div>
   <div style="display: {activeTab === 'quality' ? 'block' : 'none'}">
     <QualityTab />
+  </div>
+  <div style="display: {activeTab === 'search' ? 'block' : 'none'}">
+    <SearchTab
+      on:download={(e) => {
+        searchDownloadUrl = e.detail;
+        activeTab = "download";
+      }}
+    />
   </div>
 
   {#if showSettings}

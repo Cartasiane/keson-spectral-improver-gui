@@ -2,7 +2,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { downloadDir } from "@tauri-apps/api/path";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
-  import { onMount } from "svelte";
+  import { onMount, createEventDispatcher } from "svelte";
   import { isDesktop, getCoverSrc } from "../services/scanService";
 
   import {
@@ -12,7 +12,13 @@
     Play,
     FolderOpen,
     FolderSearch,
+    X,
   } from "lucide-svelte";
+
+  const dispatch = createEventDispatcher();
+
+  // Props
+  export let prefillUrl = null;
 
   let url = "";
   let message = "";
@@ -21,8 +27,15 @@
   let downloads = [];
   let queue = { active: 0, pending: 0 };
 
-  // mock for browser dev
-  // mock for browser dev
+  // Handle prefillUrl from SearchTab
+  $: if (prefillUrl) {
+    url = prefillUrl;
+    dispatch("urlConsumed");
+    // Auto-trigger download after a short delay
+    setTimeout(() => {
+      if (url && !busy) handleDownload();
+    }, 100);
+  }
   async function mockDownload(payload) {
     if (import.meta.env.DEV) {
       await new Promise((r) => setTimeout(r, 2000));
@@ -93,6 +106,11 @@
     }
   }
 
+  function cancelDownload() {
+    busy = false;
+    message = "Téléchargement annulé";
+  }
+
   async function retryDownload() {
     if (lastUrl) {
       url = lastUrl;
@@ -142,7 +160,7 @@
       Lien
       <input
         type="text"
-        placeholder="https://soundcloud.com/..."
+        placeholder="Lien Soundcloud ou Tidal"
         bind:value={url}
         disabled={busy}
       />
@@ -162,9 +180,16 @@
         {/if}
       </div>
     </label>
-    <button class="btn primary" on:click={handleDownload} disabled={busy}>
-      {#if busy}Charges...{:else}DOWNLOAD{/if}
-    </button>
+    <div class="download-row">
+      {#if busy}
+        <button class="btn cancel" on:click={cancelDownload} title="Annuler">
+          <X size={16} />
+        </button>
+      {/if}
+      <button class="btn primary" on:click={handleDownload} disabled={busy}>
+        {#if busy}Téléchargement...{:else}DOWNLOAD{/if}
+      </button>
+    </div>
   </div>
   {#if message}
     <p class="hint" class:warn={isQueueFull}>{message}</p>
@@ -432,5 +457,29 @@
   }
   .input-with-button .btn.icon-only {
     padding: 12px;
+  }
+
+  .download-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .btn.cancel {
+    padding: 0.75rem;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #ef4444;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+  }
+
+  .btn.cancel:hover {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: #ef4444;
   }
 </style>

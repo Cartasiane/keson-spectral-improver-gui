@@ -58,3 +58,15 @@ pub struct ExtractedMetadata {
     pub duration: Option<f64>,
     pub isrc: Option<String>,
 }
+
+/// Search result from Tidal or SoundCloud
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SearchResult {
+    pub source: String,
+    pub url: String,
+    pub title: String,
+    pub artist: String,
+    pub duration: Option<f64>,
+    pub cover_url: Option<String>,
+    pub score: f64,
+}
