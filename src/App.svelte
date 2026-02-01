@@ -99,13 +99,27 @@
     try {
       const { relaunch } = await import("@tauri-apps/plugin-process");
 
+      let downloaded = 0;
+      let contentLength = 0;
+
       await updateAvailable.downloadAndInstall((event) => {
-        if (event.event === "Progress") {
-          const total = event.data.contentLength || 1;
-          updateProgress = Math.round((event.data.chunkLength / total) * 100);
+        switch (event.event) {
+          case "Started":
+            contentLength = event.data.contentLength || 0;
+            console.log(`Update download started: ${contentLength} bytes`);
+            break;
+          case "Progress":
+            downloaded += event.data.chunkLength;
+            if (contentLength > 0) {
+              updateProgress = Math.round((downloaded / contentLength) * 100);
+            }
+            break;
+          case "Finished":
+            console.log("Update download finished");
+            updateProgress = 100;
+            break;
         }
       });
-      updateProgress = 100;
       await relaunch();
     } catch (err) {
       console.error("Update failed:", err);
