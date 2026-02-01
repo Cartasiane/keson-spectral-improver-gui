@@ -4,6 +4,7 @@
 
   // Props
   export let duration = 4000;
+  export let delay = 0; // Delay before starting the animation (ms)
   export let strokeColor = "#39ff14";
   export let strokeWidth = 1;
   export let autoplay = true;
@@ -18,7 +19,7 @@
     const paths = svgElement.querySelectorAll("path");
 
     timeline = createTimeline({
-      autoplay: autoplay,
+      autoplay: false, // We'll control this manually for delay support
       loop: loop,
     });
 
@@ -30,7 +31,20 @@
       delay: stagger(Math.round(duration * 0.02)), // Dynamic stagger based on duration
     });
 
+    // Handle delayed start
+    let delayTimeout;
+    if (autoplay) {
+      if (delay > 0) {
+        delayTimeout = setTimeout(() => {
+          timeline.play();
+        }, delay);
+      } else {
+        timeline.play();
+      }
+    }
+
     return () => {
+      if (delayTimeout) clearTimeout(delayTimeout);
       if (timeline) timeline.pause();
     };
   });

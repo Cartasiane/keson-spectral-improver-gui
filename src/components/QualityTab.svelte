@@ -556,11 +556,35 @@
         />
       {:else if retrying}
         <div class="downloading-placeholder">
-          <div style="width: 160px; height: 260px;">
+          <div
+            style="height: 260px; display: flex; flex-direction: row; justify-content: space-between;"
+          >
             <KesonDrawable
               autoplay={true}
               loop={true}
-              duration={3000}
+              duration={2000}
+              delay={1000}
+              strokeColor="#39ff14"
+            />
+            <KesonDrawable
+              autoplay={true}
+              loop={true}
+              duration={2000}
+              delay={0}
+              strokeColor="#39ff14"
+            />
+            <KesonDrawable
+              autoplay={true}
+              loop={true}
+              duration={2000}
+              delay={1500}
+              strokeColor="#39ff14"
+            />
+            <KesonDrawable
+              autoplay={true}
+              loop={true}
+              duration={2000}
+              delay={500}
               strokeColor="#39ff14"
             />
           </div>
