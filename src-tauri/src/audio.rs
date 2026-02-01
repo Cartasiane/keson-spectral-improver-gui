@@ -114,14 +114,8 @@ pub fn get_resource_path(app: &tauri::AppHandle, name: &str) -> Option<PathBuf> 
     // Check direct path (dev mode often)
     let direct = res_dir.join(name);
     if direct.exists() {
-        // For whatsmybitrate, we explicitly want the directory, not a stray binary file in target root
-        if name.contains("whatsmybitrate") {
-            if direct.is_dir() {
-                return Some(direct);
-            }
-        } else {
-            return Some(direct);
-        }
+        // For whatsmybitrate, we accept both file (onefile) and directory (onedir)
+        return Some(direct);
     }
 
     // Check resources subdir (prod bundle often, and correctly placed in debug/resources)
@@ -334,8 +328,13 @@ pub async fn invoke_whatsmybitrate(
     
     // Try to find the bundled onedir executable in resources
     for name in resource_names {
-        if let Some(dir) = get_resource_path(app, &name) {
-            let candidate = dir.join(bin_name);
+        if let Some(path) = get_resource_path(app, &name) {
+            let candidate = if path.is_file() {
+                path
+            } else {
+                path.join(bin_name)
+            };
+            
             log::info!("[whatsmybitrate] Checking for binary at: {:?}", candidate);
             if candidate.exists() {
                 exe_path = Some(candidate);
