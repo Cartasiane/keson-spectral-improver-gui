@@ -10,6 +10,7 @@
   ],
   "permissions": [
     "global-shortcut:default",
+    "updater:default",
     "shell:allow-open",
     "shell:allow-spawn",
     "opener:default",
