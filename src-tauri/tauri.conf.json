@@ -28,7 +28,7 @@
   },
   "productName": "Keson Spectral Improver",
   "mainBinaryName": "Keson Spectral Improver",
-  "version": "0.9.14",
+  "version": "0.9.15",
   "identifier": "com.keson.spectralimprover",
   "plugins": {
     "updater": {
