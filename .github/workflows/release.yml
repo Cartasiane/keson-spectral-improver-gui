@@ -112,6 +112,9 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Log Tauri Info (Debug)
+        run: npx tauri info
+
       - name: Enable updater capability (production only)
         run: |
           mv src-tauri/capabilities/updater.json.disabled src-tauri/capabilities/updater.json
