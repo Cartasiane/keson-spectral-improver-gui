@@ -12,28 +12,20 @@ except ImportError:
     print("Error: py7zr is not installed. Please install it using 'pip install py7zr'")
     sys.exit(1)
 
-# Configuration
+# Configuration - Only ffprobe is needed (ffmpeg was removed as unused)
 BINARIES_DIR = os.path.abspath("src-tauri/binaries")
 URLS = {
     "win64": {
         "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip",
         "ext": "zip",
-        "target_ffmpeg": "ffmpeg-x86_64-pc-windows-msvc.exe",
         "target_ffprobe": "ffprobe-x86_64-pc-windows-msvc.exe",
         "inner_dir": "ffmpeg-master-latest-win64-gpl/bin"
     },
     "linux64": {
         "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz",
         "ext": "tar.xz",
-        "target_ffmpeg": "ffmpeg-x86_64-unknown-linux-gnu",
         "target_ffprobe": "ffprobe-x86_64-unknown-linux-gnu",
         "inner_dir": "ffmpeg-master-latest-linux64-gpl/bin"
-    },
-    "macos_intel_ffmpeg": {
-        "url": "https://evermeet.cx/ffmpeg/getrelease/zip",
-        "ext": "zip",
-        "target": "ffmpeg-x86_64-apple-darwin",
-        "inner_file": "ffmpeg"
     },
     "macos_intel_ffprobe": {
         "url": "https://evermeet.cx/ffmpeg/ffprobe-122467-gc3d3377fe1.7z",
@@ -77,51 +69,35 @@ def extract_and_install(key, archive_path, temp_dir):
 
         elif config["ext"] == "zip":
             with zipfile.ZipFile(archive_path, 'r') as zf:
-                # Handle Windows FFmpeg (nested in inner_dir)
+                # Handle Windows ffprobe (nested in inner_dir)
                 if "win64" in key:
-                    for binary in ["ffmpeg.exe", "ffprobe.exe"]:
-                        src_path = f"{config['inner_dir']}/{binary}"
-                        dest_name = config["target_ffmpeg"] if "ffmpeg" in binary else config["target_ffprobe"]
-                        dest_path = os.path.join(BINARIES_DIR, dest_name)
-                        
-                        try:
-                            with zf.open(src_path) as source, open(dest_path, "wb") as target:
-                                shutil.copyfileobj(source, target)
-                            print(f"Installed {dest_name}")
-                        except KeyError:
-                            print(f"Error: {src_path} not found in zip")
-                            
-                # Handle MacOS FFmpeg (single file at root or slightly different)
-                elif "macos" in key:
-                    src_path = config["inner_file"]
-                    dest_path = os.path.join(BINARIES_DIR, config["target"])
+                    src_path = f"{config['inner_dir']}/ffprobe.exe"
+                    dest_path = os.path.join(BINARIES_DIR, config["target_ffprobe"])
+                    
                     try:
-                         # MacOS ffmpeg zip from evermeet usually has the binary at root
                         with zf.open(src_path) as source, open(dest_path, "wb") as target:
                             shutil.copyfileobj(source, target)
-                        os.chmod(dest_path, 0o755)
-                        print(f"Installed {config['target']}")
+                        print(f"Installed {config['target_ffprobe']}")
                     except KeyError:
                         print(f"Error: {src_path} not found in zip")
 
         elif config["ext"] == "tar.xz":
             with tarfile.open(archive_path, 'r:xz') as tf:
-                for binary in ["ffmpeg", "ffprobe"]:
-                    src_path = f"{config['inner_dir']}/{binary}"
-                    dest_name = config["target_ffmpeg"] if "ffmpeg" in binary else config["target_ffprobe"]
-                    dest_path = os.path.join(BINARIES_DIR, dest_name)
-                    
-                    try:
-                        member = tf.getmember(src_path)
-                        if member:
-                            f = tf.extractfile(member)
-                            if f:
-                                with open(dest_path, "wb") as target:
-                                    shutil.copyfileobj(f, target)
-                                os.chmod(dest_path, 0o755)
-                                print(f"Installed {dest_name}")
-                    except KeyError:
-                         print(f"Error: {src_path} not found in tar")
+                # Only extract ffprobe
+                src_path = f"{config['inner_dir']}/ffprobe"
+                dest_path = os.path.join(BINARIES_DIR, config["target_ffprobe"])
+                
+                try:
+                    member = tf.getmember(src_path)
+                    if member:
+                        f = tf.extractfile(member)
+                        if f:
+                            with open(dest_path, "wb") as target:
+                                shutil.copyfileobj(f, target)
+                            os.chmod(dest_path, 0o755)
+                            print(f"Installed {config['target_ffprobe']}")
+                except KeyError:
+                     print(f"Error: {src_path} not found in tar")
 
     except Exception as e:
         print(f"Error processing {key}: {e}")
@@ -142,7 +118,7 @@ def main():
     elif current_os == "Linux":
         keys_to_process = ["linux64"]
     elif current_os == "Darwin":
-        keys_to_process = ["macos_intel_ffmpeg", "macos_intel_ffprobe"]
+        keys_to_process = ["macos_intel_ffprobe"]
     else:
         print(f"Unsupported OS: {current_os}")
         return

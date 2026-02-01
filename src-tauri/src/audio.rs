@@ -105,47 +105,7 @@ pub fn run_ffprobe_sidecar(app: &tauri::AppHandle, args: Vec<&str>) -> Result<Ve
     }
 }
 
-/// Run ffmpeg sidecar with given arguments, returns success status
-/// Uses synchronous execution to avoid tokio runtime deadlocks
-pub fn run_ffmpeg_sidecar(app: &tauri::AppHandle, args: Vec<&str>) -> Result<bool, String> {
-    // Determine the bundled ffmpeg path based on platform
-    #[cfg(target_os = "macos")]
-    let binary_name = "ffmpeg";
-    #[cfg(target_os = "windows")]
-    let binary_name = "ffmpeg.exe";
-    #[cfg(target_os = "linux")]
-    let binary_name = "ffmpeg";
-    
-    // Try to find the bundled binary
-    if let Some(bundled_path) = resolve_sidecar_path(app, binary_name) {
-         let mut cmd = Command::new(&bundled_path);
-         cmd.args(&args);
-         
-         #[cfg(target_os = "windows")]
-         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-         
-         match cmd.output() {
-             Ok(output) => {
-                 return Ok(output.status.success());
-             },
-             Err(_) => {
-                 // proceed to fallback
-             }
-         }
-    }
-    
-    // Fallback to system ffmpeg (dev mode or if bundled binary not found)
-    let mut cmd = Command::new("ffmpeg");
-    cmd.args(&args);
-    
-    #[cfg(target_os = "windows")]
-    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    
-    let output = cmd.output()
-        .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
-    
-    Ok(output.status.success())
-}
+
 
 // Helper to get resource path, checking both root and 'resources' subdir
 pub fn get_resource_path(app: &tauri::AppHandle, name: &str) -> Option<PathBuf> {
