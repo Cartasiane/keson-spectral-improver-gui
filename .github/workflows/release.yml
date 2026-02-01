@@ -95,7 +95,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: src-tauri/resources/whatsmybitrate
-          key: sidecar-${{ matrix.platform }}-${{ hashFiles('vendor/whatsmybitrate/**') }}-v1
+          key: sidecar-${{ matrix.platform }}-${{ hashFiles('vendor/whatsmybitrate/**') }}-v2
 
       - name: Build whatsmybitrate sidecar
         if: steps.cache-sidecar.outputs.cache-hit != 'true'
@@ -104,24 +104,38 @@ jobs:
           export MACOSX_DEPLOYMENT_TARGET=10.13
           pip install pyinstaller
           pip install -r requirements.txt
-          pyinstaller --clean --onefile --name whatsmybitrate \
-            --hidden-import librosa --hidden-import soundfile --hidden-import audioread \
-            --hidden-import numpy --hidden-import scipy.signal \
-            --exclude-module tkinter --exclude-module matplotlib \
-            --exclude-module pandas --exclude-module IPython \
-            --exclude-module pytest \
-            whatsmybitrate_cli.py
+          if [[ "${{ matrix.platform }}" == "ubuntu-22.04" ]]; then
+            echo "Building single-file executable for Linux AppImage compatibility..."
+            pyinstaller --clean --onefile --name whatsmybitrate \
+              --hidden-import librosa --hidden-import soundfile --hidden-import audioread \
+              --hidden-import numpy --hidden-import scipy.signal \
+              --exclude-module tkinter --exclude-module matplotlib \
+              --exclude-module pandas --exclude-module IPython \
+              --exclude-module pytest \
+              whatsmybitrate_cli.py
+          else
+            echo "Building directory bundle (onedir) for speed and stability..."
+            # macOS and Windows use the spec file for onedir build
+            pyinstaller whatsmybitrate.spec
+          fi
 
           # Prepare resources directory
           mkdir -p ../../src-tauri/resources/whatsmybitrate
 
           # Apply ad-hoc signature to the main binary (macOS only)
           if [[ "${{ matrix.platform }}" == "macos-latest" || "${{ matrix.platform }}" == "macos-15-intel" ]]; then
-             codesign --force --sign - --entitlements entitlements.plist --options runtime dist/whatsmybitrate
+             # macOS now uses onedir, so sign the binary inside the folder
+             codesign --force --sign - --entitlements entitlements.plist --options runtime dist/whatsmybitrate/whatsmybitrate
           fi
 
-          # Copy the onefile executable to resources directory
-          cp dist/whatsmybitrate* ../../src-tauri/resources/whatsmybitrate/
+          # Copy the executable to resources directory
+          if [[ -d "dist/whatsmybitrate" ]]; then
+             echo "Copying directory bundle..."
+             cp -r dist/whatsmybitrate/* ../../src-tauri/resources/whatsmybitrate/
+          else
+             echo "Copying single-file executable..."
+             cp dist/whatsmybitrate* ../../src-tauri/resources/whatsmybitrate/
+          fi
         shell: bash
 
       - name: Setup Node.js
