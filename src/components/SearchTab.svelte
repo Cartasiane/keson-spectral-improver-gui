@@ -33,8 +33,11 @@
 
     debounceTimer = setTimeout(() => {
       performSearch();
-    }, 400);
+    }, 600);
   }
+
+  let currentRequestId = 0;
+  const searchCache = new Map(); // Simple memory cache
 
   async function performSearch() {
     if (!isDesktop) {
@@ -42,17 +45,34 @@
       return;
     }
 
+    const trimmedQuery = query.trim();
+
+    // Check cache first
+    if (searchCache.has(trimmedQuery)) {
+      results = searchCache.get(trimmedQuery);
+      loading = false;
+      return;
+    }
+
+    const requestId = ++currentRequestId;
     loading = true;
     error = null;
 
     try {
-      results = await invoke("search_tracks", { query: query.trim() });
+      const res = await invoke("search_tracks", { query: trimmedQuery });
+      if (requestId !== currentRequestId) return; // Ignore stale results
+
+      results = res;
+      searchCache.set(trimmedQuery, res); // Cache result
     } catch (err) {
+      if (requestId !== currentRequestId) return;
       console.error("Search failed:", err);
       error = err?.message || err || "Search failed";
       results = [];
     } finally {
-      loading = false;
+      if (requestId === currentRequestId) {
+        loading = false;
+      }
     }
   }
 
@@ -125,7 +145,12 @@
           >
             <div class="result-cover">
               {#if result.cover_url}
-                <img src={result.cover_url} alt="" loading="lazy" referrerpolicy="no-referrer" />
+                <img
+                  src={result.cover_url}
+                  alt=""
+                  loading="lazy"
+                  referrerpolicy="no-referrer"
+                />
               {:else}
                 <div class="cover-placeholder">
                   <Music size={24} />
