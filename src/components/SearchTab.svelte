@@ -125,7 +125,7 @@
           >
             <div class="result-cover">
               {#if result.cover_url}
-                <img src={result.cover_url} alt="" loading="lazy" />
+                <img src={result.cover_url} alt="" loading="lazy" referrerpolicy="no-referrer" />
               {:else}
                 <div class="cover-placeholder">
                   <Music size={24} />
