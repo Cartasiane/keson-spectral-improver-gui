@@ -819,7 +819,7 @@ async fn search_tracks(query: String, app: tauri::AppHandle) -> Result<Vec<Searc
         let json: serde_json::Value = resp.json()
             .map_err(|e| format!("JSON parse failed: {e}"))?;
         
-        let results: Vec<SearchResult> = json["results"]
+        let mut results: Vec<SearchResult> = json["results"]
             .as_array()
             .map(|arr| {
                 arr.iter().filter_map(|v| {
@@ -835,10 +835,56 @@ async fn search_tracks(query: String, app: tauri::AppHandle) -> Result<Vec<Searc
                 }).collect()
             })
             .unwrap_or_default();
+            
+        // Fallback: If cover is missing for Tidal tracks, try to scrape it from the page
+        // Use rayon to do this in parallel to avoid slowing down search
+        results.par_iter_mut().for_each(|res| {
+            if res.source == "tidal" && res.cover_url.is_none() {
+                log::info!("[GUI] Missing cover for {}, trying to scrape...", res.title);
+                if let Ok(scraped_cover) = scrape_tidal_cover(&res.url) {
+                    log::info!("[GUI] Scraped cover: {}", scraped_cover);
+                    res.cover_url = Some(scraped_cover);
+                }
+            }
+        });
         
         log::info!("[GUI] Search returned {} results", results.len());
         Ok(results)
     }).await.map_err(|e| e.to_string())?
+}
+
+/// Helper to scrape og:image from Tidal public page
+fn scrape_tidal_cover(url: &str) -> Result<String, String> {
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36")
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| e.to_string())?;
+        
+    let resp = client.get(url).send().map_err(|e| e.to_string())?;
+    
+    if !resp.status().is_success() {
+        return Err(format!("Page fetch failed: {}", resp.status()));
+    }
+    
+    let html = resp.text().map_err(|e| e.to_string())?;
+    
+    // Simple string search for og:image to avoid html parsing dependency overkill
+    // Format: <meta property="og:image" content="https://resources.tidal.com/images/.../1280x1280.jpg" />
+    
+    if let Some(idx) = html.find("og:image") {
+        if let Some(content_idx) = html[idx..].find("content=\"") {
+            let start = idx + content_idx + 9;
+            if let Some(end_idx) = html[start..].find("\"") {
+                let url = &html[start..start + end_idx];
+                if url.starts_with("http") {
+                    return Ok(url.to_string());
+                }
+            }
+        }
+    }
+    
+    Err("No og:image found".to_string())
 }
 
 fn main() {
