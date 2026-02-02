@@ -1,7 +1,8 @@
 [package]
-name = "keson-spectral-improver-gui"
-version = "0.9.18"
+name = "keson_spectral_improver_gui"
+version = "0.9.19"
 edition = "2021"
+description = "A Tauri App"
 authors = ["keson"]
 
 [build-dependencies]
