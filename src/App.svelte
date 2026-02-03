@@ -9,6 +9,7 @@
   import { onMount } from "svelte";
   import { type as osType } from "@tauri-apps/plugin-os";
   import { invoke } from "@tauri-apps/api/core";
+  import { message } from "@tauri-apps/plugin-dialog";
   import { fetchSettings, persistSettings } from "./services/settingsService";
   import { isDesktop } from "./services/scanService";
   import { startMatrix } from "./services/matrixRain";
@@ -123,6 +124,10 @@
       await relaunch();
     } catch (err) {
       console.error("Update failed:", err);
+      await message(
+        `Update failed: ${err?.message || err}\n\nPlease try manually downloading from GitHub releases if this persists.`,
+        { title: "Update Error", kind: "error" },
+      );
       updateDownloading = false;
     }
   }

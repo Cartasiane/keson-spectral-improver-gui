@@ -4,5 +4,5 @@
   "description": "Updater permissions - only for production builds with with-updater feature",
   "platforms": ["macOS", "windows", "linux"],
   "windows": ["main"],
-  "permissions": ["updater:default"]
+  "permissions": ["updater:default", "process:allow-restart"]
 }
