@@ -981,7 +981,8 @@ async fn redownload_bad(paths: Vec<String>, source: String, backup: bool, app: t
                     "album": file_metadata.album,
                     "duration": file_metadata.duration,
                     "isrc": file_metadata.isrc
-                }
+                },
+                "source": source
             });
             
             let mut download_target: Option<String> = None;
