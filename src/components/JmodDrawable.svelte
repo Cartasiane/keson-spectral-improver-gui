@@ -4,7 +4,7 @@
 
   export let duration = 4000;
   export let strokeColor = "#000000";
-  export let strokeWidth = 1;
+  export let strokeWidth = 4;
   export let autoplay = true;
   export let loop = false;
 

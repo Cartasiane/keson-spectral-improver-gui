@@ -12,6 +12,7 @@
     Send,
     BadgeCheck,
   } from "lucide-svelte";
+  import JmodDrawable from "./JmodDrawable.svelte";
 
   export let item;
   export let spectrumUrl;
@@ -176,7 +177,24 @@
   {#if loading || spectrumUrl}
     <div class="spectrum" style="grid-column: 1 / -1;">
       {#if loading}
-        <div class="skeleton"></div>
+        <div class="spectrum-loading">
+          <div class="jmod-wrapper">
+            <JmodDrawable
+              strokeColor="var(--accent, #39ff14)"
+              strokeWidth={1}
+              duration={10000}
+              loop={true}
+            />
+          </div>
+          <div class="jmod-wrapper">
+            <JmodDrawable
+              strokeColor="var(--accent, #39ff14)"
+              strokeWidth={10}
+              duration={10000}
+              loop={true}
+            />
+          </div>
+        </div>
       {:else if spectrumUrl === "error"}
         <div class="skeleton error">Spectre indisponible</div>
       {:else}
@@ -264,5 +282,21 @@
     white-space: normal;
     overflow: visible;
     word-break: break-all; /* Ensure long error codes break */
+  }
+
+  .spectrum-loading {
+    display: flex;
+    align-items: center;
+    flex-direction: row;
+    justify-content: space-around;
+    height: 300px; /* Typical spectrum height */
+    width: 100%;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 4px;
+  }
+
+  .jmod-wrapper {
+    width: 300px;
+    opacity: 0.9;
   }
 </style>

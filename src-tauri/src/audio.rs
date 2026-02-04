@@ -111,17 +111,18 @@ pub fn run_ffprobe_sidecar(app: &tauri::AppHandle, args: Vec<&str>) -> Result<Ve
 pub fn get_resource_path(app: &tauri::AppHandle, name: &str) -> Option<PathBuf> {
     let res_dir = app.path().resource_dir().ok()?;
     
-    // Check direct path (dev mode often)
+    // 1. Check resources subdir (prod bundle often, and correctly placed in debug/resources)
+    // CRITICAL FIX: Check this FIRST because Tauri spills broken binaries to root target/debug in dev mode
+    let nested = res_dir.join("resources").join(name);
+    if nested.exists() {
+        return Some(nested);
+    }
+
+    // 2. Check direct path (dev mode often, but can be broken binary)
     let direct = res_dir.join(name);
     if direct.exists() {
         // For whatsmybitrate, we accept both file (onefile) and directory (onedir)
         return Some(direct);
-    }
-
-    // Check resources subdir (prod bundle often, and correctly placed in debug/resources)
-    let nested = res_dir.join("resources").join(name);
-    if nested.exists() {
-        return Some(nested);
     }
     
     // Check _up_/vendor (bundled ../vendor/whatsmybitrate often ends up here)
@@ -379,8 +380,10 @@ pub async fn invoke_whatsmybitrate(
                     return Err(String::from_utf8_lossy(&output.stderr).to_string());
                  }
 
+                 let stdout_str = String::from_utf8_lossy(&output.stdout).to_string();
+                 let stderr_str = String::from_utf8_lossy(&output.stderr).to_string();
                  serde_json::from_slice(&output.stdout)
-                    .map_err(|e| format!("Failed to parse output: {}", e))
+                    .map_err(|e| format!("Failed to parse output (python): {}. Raw stdout: '{}'. Stderr: '{}'", e, stdout_str, stderr_str))
             }).await.map_err(|e| e.to_string())?
         }
     }
@@ -430,8 +433,10 @@ pub async fn invoke_whatsmybitrate(
             return Err(String::from_utf8_lossy(&output.stderr).to_string());
          }
 
+         let stdout_str = String::from_utf8_lossy(&output.stdout).to_string();
+         let stderr_str = String::from_utf8_lossy(&output.stderr).to_string();
          serde_json::from_slice(&output.stdout)
-            .map_err(|e| format!("Failed to parse output: {}", e))
+            .map_err(|e| format!("Failed to parse output (binary): {}. Raw stdout: '{}'. Stderr: '{}'", e, stdout_str, stderr_str))
     }).await.map_err(|e| e.to_string())?
 }
 
