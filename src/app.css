@@ -129,6 +129,22 @@ body {
   text-decoration: underline;
 }
 
+.menu-link.danger {
+  border: 1px solid rgba(255, 50, 50, 0.3);
+  color: rgba(255, 100, 100, 0.9);
+  border-radius: 20px;
+  padding: 4px 10px;
+  margin-right: 12px;
+}
+
+.menu-link.danger:hover {
+  background: rgba(255, 0, 0, 0.1);
+  border-color: rgba(255, 50, 50, 0.8);
+  color: #fff;
+  box-shadow: 0 0 10px rgba(255, 0, 0, 0.2);
+  text-decoration: none;
+}
+
 .hero-stats {
   display: grid;
   grid-template-columns: repeat(2, minmax(80px, 1fr));

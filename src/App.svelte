@@ -3,6 +3,7 @@
   import QualityTab from "./components/QualityTab.svelte";
   import SearchTab from "./components/SearchTab.svelte";
   import SettingsModal from "./components/SettingsModal.svelte";
+  import BugReportModal from "./components/BugReportModal.svelte";
   import RegistrationModal from "./components/RegistrationModal.svelte";
   import UpdateNotification from "./components/UpdateNotification.svelte";
   import TitleBar from "./components/TitleBar.svelte";
@@ -18,6 +19,7 @@
   let activeTab = "quality";
   let searchDownloadUrl = null;
   let showSettings = false;
+  let showBugReportModal = false;
   let showTitleBar = false;
   let settings = {
     min_bitrate: 256,
@@ -209,6 +211,10 @@
     </div>
     <div class="hero-right">
       <nav class="top-menu">
+        <button
+          class="menu-link danger"
+          on:click={() => (showBugReportModal = true)}>BUG REPORT</button
+        >
         <button class="menu-link" on:click={() => (showSettings = true)}
           >SETTINGS</button
         >
@@ -263,5 +269,9 @@
       on:close={() => (showSettings = false)}
       on:save={saveSettings}
     />
+  {/if}
+
+  {#if showBugReportModal}
+    <BugReportModal on:close={() => (showBugReportModal = false)} />
   {/if}
 </main>

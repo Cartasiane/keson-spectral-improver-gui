@@ -2273,7 +2273,7 @@ dependencies = [
 
 [[package]]
 name = "keson_spectral_improver_gui"
-version = "0.9.21"
+version = "1.0.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",

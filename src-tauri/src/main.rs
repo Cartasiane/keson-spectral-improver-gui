@@ -576,6 +576,51 @@ async fn open_logs_folder(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn get_log_tail(lines: usize, app: tauri::AppHandle) -> Result<String, String> {
+    let log_dir = app.path().app_log_dir().map_err(|e| e.to_string())?;
+    
+    if !log_dir.exists() {
+        return Err("Dossier de logs introuvable".into());
+    }
+
+    // Find the most recently modified .log file
+    let mut log_files: Vec<_> = fs::read_dir(&log_dir)
+        .map_err(|e| e.to_string())?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            let path = entry.path();
+            path.is_file() && path.extension().map_or(false, |ext| ext == "log")
+        })
+        .collect();
+
+    if log_files.is_empty() {
+        return Err("Aucun fichier de log trouvé".into());
+    }
+
+    // Sort by modification time, newest first
+    log_files.sort_by_key(|entry| {
+        entry.metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+    });
+    log_files.reverse();
+
+    let latest_log = log_files[0].path();
+    let content = fs::read_to_string(&latest_log).map_err(|e| e.to_string())?;
+    
+    let tail: String = content.lines()
+        .rev()
+        .take(lines)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    Ok(tail)
+}
+
+#[tauri::command]
 async fn open_spectrum(path: String, app: tauri::AppHandle) -> Result<Vec<u8>, String> {
     let src = Path::new(&path);
     if !src.exists() {
@@ -905,6 +950,7 @@ fn main() {
             register_client,
             check_auth_status,
             open_logs_folder,
+            get_log_tail,
             search_tracks
         ])
 
