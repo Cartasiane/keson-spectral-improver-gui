@@ -1,6 +1,6 @@
 [package]
 name = "keson_spectral_improver_gui"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 description = "A Tauri App"
 authors = ["keson"]
