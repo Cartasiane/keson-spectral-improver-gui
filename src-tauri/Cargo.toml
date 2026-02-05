@@ -1,6 +1,6 @@
 [package]
 name = "keson_spectral_improver_gui"
-version = "0.9.21"
+version = "1.0.0"
 edition = "2021"
 description = "A Tauri App"
 authors = ["keson"]
@@ -35,6 +35,7 @@ urlencoding = "2.1.3"
 md5 = "0.7"
 chrono = "0.4"
 regex = "1"
+log-panics = "2.1.0"
 
 [features]
 # Don't enable custom-protocol by default - only enable for production builds
