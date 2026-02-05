@@ -842,6 +842,7 @@ async fn search_tracks(query: String, app: tauri::AppHandle) -> Result<Vec<Searc
 }
 
 fn main() {
+    log_panics::init();
     init_rayon_pool();
     tauri::Builder::default()
         .plugin(tauri_plugin_os::init())

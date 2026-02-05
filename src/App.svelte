@@ -13,6 +13,7 @@
   import { fetchSettings, persistSettings } from "./services/settingsService";
   import { isDesktop } from "./services/scanService";
   import { startMatrix } from "./services/matrixRain";
+  import { attachConsole } from "@tauri-apps/plugin-log";
 
   let activeTab = "quality";
   let searchDownloadUrl = null;
@@ -43,6 +44,7 @@
   let updateDismissed = false;
 
   onMount(async () => {
+    attachConsole();
     if (isDesktop) {
       const type = await osType();
       showTitleBar = true; // Use custom titlebar on all desktop platforms since decorations are hidden
