@@ -32,7 +32,7 @@
   "identifier": "com.keson.spectralimprover",
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk1MDVCMTY0NzUyNjJCMkUKUldRdUt5WjFaTEVGbGFJVjhSRDhUcEJDQ2U3QmgrT2pBUWZMMEhHOS9lUmtOQWZDbkRuQStHa0UK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDA2NDdGRkVBODdENjAxQTcKUldTbkFkYUg2djlIQnQvR0dHUTR1MTM3bTZzblJlb3cvY0c5aStLODIxN1BIVXJBRWR1cUEwR24K",
       "endpoints": [
         "https://github.com/Cartasiane/keson-spectral-improver-gui/releases/latest/download/latest.json"
       ]
